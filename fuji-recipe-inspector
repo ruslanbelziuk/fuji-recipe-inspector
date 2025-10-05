@@ -64,18 +64,47 @@ debug_mode() {
     exiftool -Fujifilm:all "$image_file"
 }
 
-get_exif_value() {
+# Extract all EXIF data in JSON format for efficient access
+extract_exif_json() {
     local image_file="$1"
+    
+    if [ ! -f "$image_file" ]; then
+        echo "Error: File not found: $image_file" >&2
+        exit 1
+    fi
+    
+    # Use exiftool to extract all EXIF data in JSON format
+    exiftool -json -groupNames -s3 "$image_file" 2>/dev/null || echo "[]"
+}
+
+# Parse JSON value using shell-compatible approach
+parse_json_value() {
+    local json_data="$1"
+    local key="$2"
+    local default="${3:-}"
+    
+    # Use a simple grep-based approach to extract values from JSON
+    # This works with the exiftool JSON output format
+    local value=$(echo "$json_data" | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*:[[:space:]]*"\([^"]*\)".*/\1/')
+    
+    # If no quoted value found, try unquoted numeric/boolean values
+    if [ -z "$value" ]; then
+        value=$(echo "$json_data" | grep -o "\"$key\"[[:space:]]*:[[:space:]]*[^,}]*" | head -1 | sed 's/.*:[[:space:]]*//' | sed 's/[[:space:]]*$//')
+    fi
+    
+    echo "${value:-$default}"
+}
+
+get_exif_value() {
+    local exif_data="$1"
     local tag="$2"
     local default="${3:-}"
     local uppercase="${4:-false}"
-
-    local value
-    # Try Fujifilm category first, then general EXIF
-    value=$(exiftool -s3 -"Fujifilm:$tag" "$image_file" 2>/dev/null || echo "")
-    if [[ -z "$value" ]]; then
-        value=$(exiftool -s3 -"$tag" "$image_file" 2>/dev/null || echo "")
-    fi
+    local category="${5:-MakerNotes}"
+    
+    # Try with category prefix first
+    local full_tag="${category}:${tag}"
+    local value=$(parse_json_value "$exif_data" "$full_tag" "")
 
     if [[ -z "$value" ]]; then
         echo "$default"
@@ -226,57 +255,61 @@ generate_fp1() {
         exit 1
     fi
 
-    # Extract EXIF data
-    local fuji_model=$(get_exif_value "$image_file" "FujiModel" "")
+    # Extract all EXIF data once in JSON format
+    local exif_data
+    exif_data=$(extract_exif_json "$image_file")
+
+    # Extract EXIF data using the optimized function
+    local fuji_model=$(get_exif_value "$exif_data" "FujiModel" "")
     local camera_model="${fuji_model%%_*}"  # Extract camera name before underscore
     if [[ -z "$camera_model" ]]; then
-        camera_model=$(get_exif_value "$image_file" "Model" "")
+        camera_model=$(get_exif_value "$exif_data" "Model" "")
     fi
-    local film_sim_raw=$(get_exif_value "$image_file" "FilmMode" "")
+    local film_sim_raw=$(get_exif_value "$exif_data" "FilmMode" "")
     local film_simulation=$(map_film_simulation "$film_sim_raw")
 
     # If FilmMode is empty, check Saturation field for B&W recipes
     if [[ -z "$film_simulation" ]]; then
-        local saturation_raw=$(get_exif_value "$image_file" "Saturation" "")
+        local saturation_raw=$(get_exif_value "$exif_data" "Saturation" "")
         film_simulation=$(map_saturation_bw "$saturation_raw")
     fi
 
-    local wb_raw=$(get_exif_value "$image_file" "WhiteBalance" "Auto")
+    local wb_raw=$(get_exif_value "$exif_data" "WhiteBalance" "Auto")
     local white_balance=$(map_white_balance "$wb_raw")
 
     # For Kelvin/Temperature white balance, use ColorTemperature EXIF value
     local wb_temp
     if [[ "$white_balance" == "Temperature" ]]; then
-        local color_temp=$(get_exif_value "$image_file" "ColorTemperature" "5500")
+        local color_temp=$(get_exif_value "$exif_data" "ColorTemperature" "5500")
         wb_temp="${color_temp}K"
     else
-        wb_temp=$(get_exif_value "$image_file" "WB_RGBLevels" "5500K")
+        wb_temp=$(get_exif_value "$exif_data" "WB_RGBLevels" "5500K")
     fi
 
-    local wb_fine_tune=$(get_exif_value "$image_file" "WhiteBalanceFineTune" "Red +0, Blue +0")
+    local wb_fine_tune=$(get_exif_value "$exif_data" "WhiteBalanceFineTune" "Red +0, Blue +0")
     local wb_shift_r=$(parse_wb_shift "$wb_fine_tune" "red")
     local wb_shift_b=$(parse_wb_shift "$wb_fine_tune" "blue")
-    local exposure_bias=$(format_exposure_bias "$(extract_numeric "$(get_exif_value "$image_file" "ExposureCompensation" "0")")")
+    local exposure_bias=$(format_exposure_bias "$(extract_numeric "$(get_exif_value "$exif_data" "ExposureCompensation" "0" "false" "EXIF")")")
 
     # Try DevelopmentDynamicRange first, then AutoDynamicRange, strip % sign
-    local dynamic_range=$(get_exif_value "$image_file" "DevelopmentDynamicRange" "")
+    local dynamic_range=$(get_exif_value "$exif_data" "DevelopmentDynamicRange" "")
     if [[ -z "$dynamic_range" ]]; then
-        dynamic_range=$(get_exif_value "$image_file" "AutoDynamicRange" "100")
+        dynamic_range=$(get_exif_value "$exif_data" "AutoDynamicRange" "100")
         dynamic_range="${dynamic_range%\%}"  # Strip percentage sign
     fi
 
-    local highlight_tone=$(extract_numeric "$(get_exif_value "$image_file" "HighlightTone" "0")")
-    local shadow_tone=$(extract_numeric "$(get_exif_value "$image_file" "ShadowTone" "0")")
-    local color=$(extract_numeric "$(get_exif_value "$image_file" "Saturation" "0")")
-    local sharpness=$(extract_numeric "$(get_exif_value "$image_file" "Sharpness" "0")")
-    local noise_reduction=$(extract_numeric "$(get_exif_value "$image_file" "NoiseReduction" "0")")
-    local grain_effect=$(get_exif_value "$image_file" "GrainEffectRoughness" "OFF" "true")
-    local grain_size=$(get_exif_value "$image_file" "GrainEffectSize" "OFF" "true")
-    local color_chrome=$(get_exif_value "$image_file" "ColorChromeEffect" "OFF" "true")
-    local color_chrome_blue=$(get_exif_value "$image_file" "ColorChromeFXBlue" "OFF" "true")
-    local clarity=$(extract_numeric "$(get_exif_value "$image_file" "Clarity" "0")")
-    local bw_adjustment=$(extract_numeric "$(get_exif_value "$image_file" "BWAdjustment" "0")")
-    local bw_magenta_green=$(extract_numeric "$(get_exif_value "$image_file" "BWMagentaGreen" "0")")
+    local highlight_tone=$(extract_numeric "$(get_exif_value "$exif_data" "HighlightTone" "0")")
+    local shadow_tone=$(extract_numeric "$(get_exif_value "$exif_data" "ShadowTone" "0")")
+    local color=$(extract_numeric "$(get_exif_value "$exif_data" "Saturation" "0")")
+    local sharpness=$(extract_numeric "$(get_exif_value "$exif_data" "Sharpness" "0")")
+    local noise_reduction=$(extract_numeric "$(get_exif_value "$exif_data" "NoiseReduction" "0")")
+    local grain_effect=$(get_exif_value "$exif_data" "GrainEffectRoughness" "OFF" "true")
+    local grain_size=$(get_exif_value "$exif_data" "GrainEffectSize" "OFF" "true")
+    local color_chrome=$(get_exif_value "$exif_data" "ColorChromeEffect" "OFF" "true")
+    local color_chrome_blue=$(get_exif_value "$exif_data" "ColorChromeFXBlue" "OFF" "true")
+    local clarity=$(extract_numeric "$(get_exif_value "$exif_data" "Clarity" "0")")
+    local bw_adjustment=$(extract_numeric "$(get_exif_value "$exif_data" "BWAdjustment" "0")")
+    local bw_magenta_green=$(extract_numeric "$(get_exif_value "$exif_data" "BWMagentaGreen" "0")")
 
     # Extract filename without extension as label
     local filename=$(basename "$image_file")
