@@ -59,9 +59,9 @@ debug_mode() {
         exit 1
     fi
 
-    echo "=== All EXIF Data for: $image_file ===" >&2
+    echo "=== Fujifilm EXIF Data for: $image_file ===" >&2
     echo "" >&2
-    exiftool "$image_file"
+    exiftool -Fujifilm:all "$image_file"
 }
 
 get_exif_value() {
@@ -227,7 +227,11 @@ generate_fp1() {
     fi
 
     # Extract EXIF data
-    local camera_model=$(get_exif_value "$image_file" "Model" "")
+    local fuji_model=$(get_exif_value "$image_file" "FujiModel" "")
+    local camera_model="${fuji_model%%_*}"  # Extract camera name before underscore
+    if [[ -z "$camera_model" ]]; then
+        camera_model=$(get_exif_value "$image_file" "Model" "")
+    fi
     local film_sim_raw=$(get_exif_value "$image_file" "FilmMode" "")
     local film_simulation=$(map_film_simulation "$film_sim_raw")
 
@@ -281,8 +285,11 @@ generate_fp1() {
     # Generate serial number (placeholder - would need actual camera serial)
     local serial_number="000000000000000000000000000000"
 
-    # Clean up camera model for version
-    local camera_version="${camera_model// /-}_0100"
+    # Use Fuji Model for version, or format camera model as fallback
+    local camera_version="$fuji_model"
+    if [[ -z "$camera_version" ]]; then
+        camera_version="${camera_model// /-}_0100"
+    fi
 
     # Generate XML
     cat << EOF
