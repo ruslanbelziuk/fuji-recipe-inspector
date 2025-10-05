@@ -265,6 +265,12 @@ generate_fp1() {
 
     # Extract EXIF data using the optimized function
     local fuji_model=$(get_exif_value "$exif_data" "FujiModel" "")
+
+    # Check if this is a Fujifilm camera - skip if FujiModel is empty
+    if [[ -z "$fuji_model" ]]; then
+        exit 1
+    fi
+
     local camera_model="${fuji_model%%_*}"  # Extract camera name before underscore
     if [[ -z "$camera_model" ]]; then
         camera_model=$(get_exif_value "$exif_data" "Model" "")
