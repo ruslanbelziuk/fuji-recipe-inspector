@@ -1,0 +1,386 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Script: fuji-recipe-inspector
+# Description: Extract EXIF data from images and convert to Fuji FP1 XML format
+
+VERSION="0.0.1-dev"
+
+show_help() {
+    cat << EOF
+Usage: $(basename "$0") [OPTIONS] IMAGE_FILE
+
+Extract EXIF data from images and convert to Fuji FP1 XML format.
+
+OPTIONS:
+    --debug         Output all available EXIF data (raw format)
+    --help, -h      Show this help message and exit
+
+ARGUMENTS:
+    IMAGE_FILE      Path to the image file to process
+
+EXAMPLES:
+    # Generate FP1 XML from image
+    $(basename "$0") photo.jpg
+
+    # Debug mode - show all EXIF data
+    $(basename "$0") --debug photo.jpg
+
+REQUIREMENTS:
+    - exiftool must be installed
+      macOS: brew install exiftool
+      Linux: apt-get install libimage-exiftool-perl (Debian/Ubuntu)
+             yum install perl-Image-ExifTool (RHEL/CentOS)
+
+EOF
+}
+
+check_dependencies() {
+    if ! command -v exiftool &> /dev/null; then
+        echo "Error: exiftool is not installed" >&2
+        echo "" >&2
+        echo "Install it with:" >&2
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            echo "  brew install exiftool" >&2
+        elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            echo "  Debian/Ubuntu: sudo apt-get install libimage-exiftool-perl" >&2
+            echo "  RHEL/CentOS:   sudo yum install perl-Image-ExifTool" >&2
+        fi
+        exit 1
+    fi
+}
+
+debug_mode() {
+    local image_file="$1"
+
+    if [[ ! -f "$image_file" ]]; then
+        echo "Error: File not found: $image_file" >&2
+        exit 1
+    fi
+
+    echo "=== All EXIF Data for: $image_file ===" >&2
+    echo "" >&2
+    exiftool "$image_file"
+}
+
+get_exif_value() {
+    local image_file="$1"
+    local tag="$2"
+    local default="${3:-}"
+    local uppercase="${4:-false}"
+
+    local value
+    # Try Fujifilm category first, then general EXIF
+    value=$(exiftool -s3 -"Fujifilm:$tag" "$image_file" 2>/dev/null || echo "")
+    if [[ -z "$value" ]]; then
+        value=$(exiftool -s3 -"$tag" "$image_file" 2>/dev/null || echo "")
+    fi
+
+    if [[ -z "$value" ]]; then
+        echo "$default"
+    else
+        if [[ "$uppercase" == "true" ]]; then
+            echo "$value" | tr '[:lower:]' '[:upper:]'
+        else
+            echo "$value"
+        fi
+    fi
+}
+
+extract_numeric() {
+    local value="$1"
+    # Extract numeric part, handling "+3 (very high)" -> "3", " -4 (lowest)" -> "-4"
+    local num=$(echo "$value" | grep -oE '[+-]?[0-9]+\.?[0-9]*' | head -1)
+    # Strip leading + sign if present
+    num="${num#+}"
+    echo "${num:-$value}"
+}
+
+format_exposure_bias() {
+    local value="$1"
+
+    # Handle zero or empty
+    if [[ -z "$value" ]] || [[ "$value" == "0" ]] || [[ "$value" == "0.0" ]]; then
+        echo "0"
+        return
+    fi
+
+    # Determine sign
+    local sign="P"
+    if [[ "$value" == -* ]]; then
+        sign="M"
+        value="${value#-}"  # Remove negative sign
+    fi
+
+    # Split into integer and decimal parts
+    local int_part="${value%%.*}"
+    local dec_part="${value#*.}"
+
+    # Handle case where there's no decimal point
+    if [[ "$int_part" == "$dec_part" ]]; then
+        dec_part="00"
+    else
+        # Ensure decimal part is 2 digits, pad or truncate
+        dec_part="${dec_part}00"
+        dec_part="${dec_part:0:2}"
+    fi
+
+    echo "${sign}${int_part}P${dec_part}"
+}
+
+parse_wb_shift() {
+    local wb_fine_tune="$1"
+    local color="$2"  # "red" or "blue"
+
+    # Extract Red or Blue value from "Red +0, Blue +0" format
+    local pattern
+    if [[ "$color" == "red" ]]; then
+        pattern='Red ([+-]?[0-9]+)'
+    else
+        pattern='Blue ([+-]?[0-9]+)'
+    fi
+
+    local value=$(echo "$wb_fine_tune" | grep -oE "$pattern" | grep -oE '[+-]?[0-9]+')
+
+    # Convert to WB shift by dividing by 20
+    if [[ -n "$value" ]]; then
+        echo $((value / 20))
+    else
+        echo "0"
+    fi
+}
+
+map_film_simulation() {
+    local film=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+
+    case "$film" in
+        *"provia"*) echo "Provia" ;;
+        *"velvia"*) echo "Velvia" ;;
+        *"astia"*) echo "Astia" ;;
+        *"classic chrome"*) echo "Classic" ;;
+        *"pro neg"*"hi"*) echo "NEGAhi" ;;
+        *"pro neg"*"std"*) echo "NEGAStd" ;;
+        *"classic neg"*) echo "ClassicNEGA" ;;
+        *"eterna"*) echo "Eterna" ;;
+        *"bleach bypass"*) echo "BleachBypass" ;;
+        *"nostalgic neg"*) echo "NostalgicNEGA" ;;
+        *"reala"*) echo "Reala" ;;
+        *"acros"*) echo "Acros" ;;
+        *"acros+r"*|*"acros r"*) echo "AcrosR" ;;
+        *"acros+g"*|*"acros g"*) echo "AcrosG" ;;
+        *"acros+ye"*|*"acros ye"*) echo "AcrosYe" ;;
+        *"sepia"*) echo "Sepia" ;;
+        *"b&w"*|*"bw"*|*"monochrome"*) echo "BW" ;;
+        *"b&w+r"*|*"bw+r"*) echo "BR" ;;
+        *"b&w+g"*|*"bw+g"*) echo "BG" ;;
+        *"b&w+ye"*|*"bw+ye"*) echo "BYe" ;;
+        *) echo "" ;;
+    esac
+}
+
+map_saturation_bw() {
+    local saturation=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+
+    case "$saturation" in
+        *"acros yellow"*) echo "AcrosYe" ;;
+        *"acros red"*) echo "AcrosR" ;;
+        *"acros green"*) echo "AcrosG" ;;
+        *"acros"*) echo "Acros" ;;
+        *"b&w yellow"*|*"bw yellow"*) echo "BYe" ;;
+        *"b&w red"*|*"bw red"*) echo "BR" ;;
+        *"b&w green"*|*"bw green"*) echo "BG" ;;
+        *"b&w sepia"*|*"bw sepia"*) echo "Sepia" ;;
+        *"none (b&w)"*) echo "BW" ;;
+        *) echo "" ;;
+    esac
+}
+
+map_white_balance() {
+    local wb=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+
+    case "$wb" in
+        *"auto (white priority)"*|*"auto white"*) echo "Auto_White" ;;
+        *"auto (ambiance priority)"*|*"auto ambiance"*) echo "Auto_Ambience" ;;
+        *"auto"*) echo "Auto" ;;
+        *"custom3"*) echo "Custom3" ;;
+        *"custom2"*) echo "Custom2" ;;
+        *"custom"*) echo "Custom1" ;;
+        *"kelvin"*) echo "Temperature" ;;
+        *"daylight fluorescent"*) echo "FLight1" ;;
+        *"day white fluorescent"*) echo "FLight2" ;;
+        *"white fluorescent"*) echo "FLight3" ;;
+        *"daylight"*) echo "Daylight" ;;
+        *"cloudy"*) echo "Shade" ;;
+        *"incandescent"*) echo "Incand" ;;
+        *"underwater"*) echo "UWater" ;;
+        *) echo "Auto" ;;
+    esac
+}
+
+generate_fp1() {
+    local image_file="$1"
+
+    if [[ ! -f "$image_file" ]]; then
+        echo "Error: File not found: $image_file" >&2
+        exit 1
+    fi
+
+    # Extract EXIF data
+    local camera_model=$(get_exif_value "$image_file" "Model" "")
+    local film_sim_raw=$(get_exif_value "$image_file" "FilmMode" "")
+    local film_simulation=$(map_film_simulation "$film_sim_raw")
+
+    # If FilmMode is empty, check Saturation field for B&W recipes
+    if [[ -z "$film_simulation" ]]; then
+        local saturation_raw=$(get_exif_value "$image_file" "Saturation" "")
+        film_simulation=$(map_saturation_bw "$saturation_raw")
+    fi
+
+    local wb_raw=$(get_exif_value "$image_file" "WhiteBalance" "Auto")
+    local white_balance=$(map_white_balance "$wb_raw")
+
+    # For Kelvin/Temperature white balance, use ColorTemperature EXIF value
+    local wb_temp
+    if [[ "$white_balance" == "Temperature" ]]; then
+        local color_temp=$(get_exif_value "$image_file" "ColorTemperature" "5500")
+        wb_temp="${color_temp}K"
+    else
+        wb_temp=$(get_exif_value "$image_file" "WB_RGBLevels" "5500K")
+    fi
+
+    local wb_fine_tune=$(get_exif_value "$image_file" "WhiteBalanceFineTune" "Red +0, Blue +0")
+    local wb_shift_r=$(parse_wb_shift "$wb_fine_tune" "red")
+    local wb_shift_b=$(parse_wb_shift "$wb_fine_tune" "blue")
+    local exposure_bias=$(format_exposure_bias "$(extract_numeric "$(get_exif_value "$image_file" "ExposureCompensation" "0")")")
+
+    # Try DevelopmentDynamicRange first, then AutoDynamicRange, strip % sign
+    local dynamic_range=$(get_exif_value "$image_file" "DevelopmentDynamicRange" "")
+    if [[ -z "$dynamic_range" ]]; then
+        dynamic_range=$(get_exif_value "$image_file" "AutoDynamicRange" "100")
+        dynamic_range="${dynamic_range%\%}"  # Strip percentage sign
+    fi
+
+    local highlight_tone=$(extract_numeric "$(get_exif_value "$image_file" "HighlightTone" "0")")
+    local shadow_tone=$(extract_numeric "$(get_exif_value "$image_file" "ShadowTone" "0")")
+    local color=$(extract_numeric "$(get_exif_value "$image_file" "Saturation" "0")")
+    local sharpness=$(extract_numeric "$(get_exif_value "$image_file" "Sharpness" "0")")
+    local noise_reduction=$(extract_numeric "$(get_exif_value "$image_file" "NoiseReduction" "0")")
+    local grain_effect=$(get_exif_value "$image_file" "GrainEffectRoughness" "OFF" "true")
+    local grain_size=$(get_exif_value "$image_file" "GrainEffectSize" "OFF" "true")
+    local color_chrome=$(get_exif_value "$image_file" "ColorChromeEffect" "OFF" "true")
+    local color_chrome_blue=$(get_exif_value "$image_file" "ColorChromeFXBlue" "OFF" "true")
+    local clarity=$(extract_numeric "$(get_exif_value "$image_file" "Clarity" "0")")
+    local bw_adjustment=$(extract_numeric "$(get_exif_value "$image_file" "BWAdjustment" "0")")
+    local bw_magenta_green=$(extract_numeric "$(get_exif_value "$image_file" "BWMagentaGreen" "0")")
+
+    # Extract filename without extension as label
+    local filename=$(basename "$image_file")
+    local label="${filename%.*}"
+
+    # Generate serial number (placeholder - would need actual camera serial)
+    local serial_number="000000000000000000000000000000"
+
+    # Clean up camera model for version
+    local camera_version="${camera_model// /-}_0100"
+
+    # Generate XML
+    cat << EOF
+<?xml version="1.0" encoding="utf-8"?>
+<ConversionProfile application="XRFC" version="1.12.0.0">
+    <PropertyGroup device="$camera_model" version="$camera_version" label="$label">
+        <SerialNumber>$serial_number</SerialNumber>
+        <TetherRAWConditonCode>${camera_version}</TetherRAWConditonCode>
+        <Editable>TRUE</Editable>
+        <SourceFileName/>
+        <Fileerror>NONE</Fileerror>
+        <RotationAngle>0</RotationAngle>
+        <StructVer>65536</StructVer>
+        <IOPCode>FF159509</IOPCode>
+        <ShootingCondition>OFF</ShootingCondition>
+        <FileType>JPG</FileType>
+        <ImageSize>L3x2</ImageSize>
+        <ImageQuality>Fine</ImageQuality>
+        <ExposureBias>$exposure_bias</ExposureBias>
+        <DynamicRange>$dynamic_range</DynamicRange>
+        <WideDRange>0</WideDRange>
+        <FilmSimulation>$film_simulation</FilmSimulation>
+        <BlackImageTone>$bw_adjustment</BlackImageTone>
+        <MonochromaticColor_RG>$bw_magenta_green</MonochromaticColor_RG>
+        <GrainEffect>$grain_effect</GrainEffect>
+        <GrainEffectSize>$grain_size</GrainEffectSize>
+        <ChromeEffect>$color_chrome</ChromeEffect>
+        <ColorChromeBlue>$color_chrome_blue</ColorChromeBlue>
+        <SmoothSkinEffect>OFF</SmoothSkinEffect>
+        <WBShootCond>OFF</WBShootCond>
+        <WhiteBalance>$white_balance</WhiteBalance>
+        <WBShiftR>$wb_shift_r</WBShiftR>
+        <WBShiftB>$wb_shift_b</WBShiftB>
+        <WBColorTemp>$wb_temp</WBColorTemp>
+        <HighlightTone>$highlight_tone</HighlightTone>
+        <ShadowTone>$shadow_tone</ShadowTone>
+        <Color>$color</Color>
+        <Sharpness>$sharpness</Sharpness>
+        <NoisReduction>$noise_reduction</NoisReduction>
+        <Clarity>$clarity</Clarity>
+        <LensModulationOpt>ON</LensModulationOpt>
+        <ColorSpace>sRGB</ColorSpace>
+        <HDR/>
+        <DigitalTeleConv>OFF</DigitalTeleConv>
+        <PortraitEnhancer/>
+    </PropertyGroup>
+</ConversionProfile>
+EOF
+}
+
+main() {
+    local debug_flag=false
+    local image_file=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            --debug)
+                debug_flag=true
+                shift
+                ;;
+            -*)
+                echo "Error: Unknown option: $1" >&2
+                echo "Use --help for usage information" >&2
+                exit 1
+                ;;
+            *)
+                if [[ -z "$image_file" ]]; then
+                    image_file="$1"
+                else
+                    echo "Error: Multiple image files specified" >&2
+                    exit 1
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # Validate arguments
+    if [[ -z "$image_file" ]]; then
+        echo "Error: No image file specified" >&2
+        echo "Use --help for usage information" >&2
+        exit 1
+    fi
+
+    # Check dependencies
+    check_dependencies
+
+    # Execute based on mode
+    if [[ "$debug_flag" == true ]]; then
+        debug_mode "$image_file"
+    else
+        generate_fp1 "$image_file"
+    fi
+}
+
+main "$@"
