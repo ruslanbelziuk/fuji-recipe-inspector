@@ -11,7 +11,7 @@ show_help() {
     cat << EOF
 Usage: $(basename "$0") [OPTIONS] IMAGE_FILE
 
-Extract EXIF data from images and convert to Fuji FP1 XML format.
+Extract EXIF data from Fujifilm images and display recipe information.
 
 OPTIONS:
     --xml           Generate FP1 XML from image (output to stdout)
@@ -22,7 +22,7 @@ ARGUMENTS:
     IMAGE_FILE      Path to the image file to process
 
 EXAMPLES:
-    # Compare image recipe with existing FP1 files (shows 100% matches only)
+    # Extract recipe information in human-readable format
     $(basename "$0") photo.jpg
 
     # Generate FP1 XML from image
@@ -210,6 +210,83 @@ map_film_simulation() {
         *"b&w+ye"*|*"bw+ye"*) echo "BYe" ;;
         *) echo "" ;;
     esac
+}
+
+# Convert internal film simulation codes to readable names
+film_sim_to_readable() {
+    case "$1" in
+        "Provia") echo "Provia/Standard" ;;
+        "Velvia") echo "Velvia/Vivid" ;;
+        "Astia") echo "Astia/Soft" ;;
+        "Classic") echo "Classic Chrome" ;;
+        "NEGAhi") echo "PRO Neg. Hi" ;;
+        "NEGAStd") echo "PRO Neg. Std" ;;
+        "ClassicNEGA") echo "Classic Negative" ;;
+        "Eterna") echo "Eterna/Cinema" ;;
+        "BleachBypass") echo "Eterna Bleach Bypass" ;;
+        "NostalgicNEGA") echo "Nostalgic Negative" ;;
+        "Reala") echo "Reala Ace" ;;
+        "Acros") echo "Acros" ;;
+        "AcrosR") echo "Acros+R" ;;
+        "AcrosG") echo "Acros+G" ;;
+        "AcrosYe") echo "Acros+Ye" ;;
+        "Sepia") echo "Sepia" ;;
+        "BW") echo "Monochrome" ;;
+        "BR") echo "Monochrome+R" ;;
+        "BG") echo "Monochrome+G" ;;
+        "BYe") echo "Monochrome+Ye" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# Convert internal white balance codes to readable names
+wb_to_readable() {
+    case "$1" in
+        "Auto") echo "Auto" ;;
+        "Auto_White") echo "Auto (White Priority)" ;;
+        "Auto_Ambience") echo "Auto (Ambiance Priority)" ;;
+        "Custom1") echo "Custom" ;;
+        "Custom2") echo "Custom 2" ;;
+        "Custom3") echo "Custom 3" ;;
+        "Temperature") echo "Kelvin" ;;
+        "FLight1") echo "Daylight Fluorescent" ;;
+        "FLight2") echo "Day White Fluorescent" ;;
+        "FLight3") echo "White Fluorescent" ;;
+        "Daylight") echo "Daylight" ;;
+        "Shade") echo "Cloudy" ;;
+        "Incand") echo "Incandescent" ;;
+        "UWater") echo "Underwater" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# Convert exposure bias format to readable
+exposure_to_readable() {
+    local value="$1"
+
+    [[ -z "$value" || "$value" == "0" ]] && echo "0" && return
+
+    # Parse format like "P0P33" or "M1P00"
+    local sign="${value:0:1}"
+    local rest="${value#?}"
+    local int_part="${rest%%P*}"
+    local dec_part="${rest#*P}"
+
+    # Convert sign
+    local sign_char=""
+    [[ "$sign" == "M" ]] && sign_char="-"
+    [[ "$sign" == "P" ]] && sign_char="+"
+
+    # Build the readable format
+    if [[ "${dec_part}" == "00" ]]; then
+        echo "${sign_char}${int_part}"
+    elif [[ "${dec_part}" == "33" ]]; then
+        echo "${sign_char}${int_part} 1/3"
+    elif [[ "${dec_part}" == "67" ]]; then
+        echo "${sign_char}${int_part} 2/3"
+    else
+        echo "${sign_char}${int_part}.${dec_part}"
+    fi
 }
 
 map_saturation_bw() {
@@ -523,6 +600,154 @@ compare_recipes() {
     echo "$recipe_name"
 }
 
+# Compare generated recipe with all FP1 files and return recipe name
+find_matching_recipe() {
+    local image_file="$1"
+
+    # Generate XML from image (but don't show it)
+    local generated_xml
+    generated_xml=$(generate_fp1 "$image_file" 2>/dev/null) || return 1
+
+    # Get all FP1 files
+    local fp1_files
+    fp1_files=$(get_fp1_files 2>/dev/null) || return 1
+
+    # Compare with each recipe, stop on first match
+    while IFS= read -r recipe_file; do
+        local result=$(compare_recipes "$generated_xml" "$recipe_file")
+        if [[ -n "$result" ]]; then
+            echo "$result"
+            return 0
+        fi
+    done <<< "$fp1_files"
+
+    return 1
+}
+
+# Generate human-readable recipe format
+generate_readable_format() {
+    local image_file="$1"
+
+    if [[ ! -f "$image_file" ]]; then
+        echo "Error: File not found: $image_file" >&2
+        exit 1
+    fi
+
+    # Extract all EXIF data once in JSON format
+    local exif_data
+    exif_data=$(extract_exif_json "$image_file")
+
+    # Check if this is a Fujifilm camera
+    local fuji_model=$(get_exif_value "$exif_data" "FujiModel" "")
+    if [[ -z "$fuji_model" ]]; then
+        echo "Error: Not a Fujifilm image" >&2
+        exit 1
+    fi
+
+    # Find recipe name
+    local recipe_name
+    recipe_name=$(find_matching_recipe "$image_file" 2>/dev/null)
+    if [[ -z "$recipe_name" ]]; then
+        recipe_name="Unknown"
+    fi
+
+    # Extract all values
+    local film_sim_raw=$(get_exif_value "$exif_data" "FilmMode" "")
+    local film_simulation=$(map_film_simulation "$film_sim_raw")
+
+    if [[ -z "$film_simulation" ]]; then
+        local saturation_raw=$(get_exif_value "$exif_data" "Saturation" "")
+        film_simulation=$(map_saturation_bw "$saturation_raw")
+    fi
+
+    local film_sim_readable=$(film_sim_to_readable "$film_simulation")
+
+    local wb_raw=$(get_exif_value "$exif_data" "WhiteBalance" "Auto")
+    local white_balance=$(map_white_balance "$wb_raw")
+    local wb_readable=$(wb_to_readable "$white_balance")
+
+    local wb_fine_tune=$(get_exif_value "$exif_data" "WhiteBalanceFineTune" "Red +0, Blue +0")
+    local wb_shift_r=$(parse_wb_shift "$wb_fine_tune" "red")
+    local wb_shift_b=$(parse_wb_shift "$wb_fine_tune" "blue")
+
+    # Format WB shift
+    local wb_shift=""
+    if [[ "$wb_shift_r" != "0" ]] || [[ "$wb_shift_b" != "0" ]]; then
+        [[ "${wb_shift_r#-}" == "$wb_shift_r" ]] && wb_shift_r="+${wb_shift_r}"
+        [[ "${wb_shift_b#-}" == "$wb_shift_b" ]] && wb_shift_b="+${wb_shift_b}"
+        wb_shift="${wb_shift_r} Red, ${wb_shift_b} Blue"
+    else
+        wb_shift="0"
+    fi
+
+    local dynamic_range=$(get_exif_value "$exif_data" "DevelopmentDynamicRange" "")
+    if [[ -z "$dynamic_range" ]]; then
+        dynamic_range=$(get_exif_value "$exif_data" "AutoDynamicRange" "100")
+        dynamic_range="${dynamic_range%\%}"
+    fi
+    [[ "$dynamic_range" != *"DR"* ]] && dynamic_range="DR${dynamic_range}"
+
+    local highlight_tone=$(extract_numeric "$(get_exif_value "$exif_data" "HighlightTone" "0")")
+    local shadow_tone=$(extract_numeric "$(get_exif_value "$exif_data" "ShadowTone" "0")")
+    local color=$(extract_numeric "$(get_exif_value "$exif_data" "Saturation" "0")")
+    local sharpness=$(extract_numeric "$(get_exif_value "$exif_data" "Sharpness" "0")")
+    local noise_reduction=$(extract_numeric "$(get_exif_value "$exif_data" "NoiseReduction" "0")")
+    local clarity=$(extract_numeric "$(get_exif_value "$exif_data" "Clarity" "0")")
+
+    local bw_adjustment=$(extract_numeric "$(get_exif_value "$exif_data" "BWAdjustment" "0")")
+    local bw_magenta_green=$(extract_numeric "$(get_exif_value "$exif_data" "BWMagentaGreen" "0")")
+
+    # Format mono shift
+    local mono_shift=""
+    if [[ "$bw_adjustment" != "0" ]] || [[ "$bw_magenta_green" != "0" ]]; then
+        [[ "${bw_adjustment#-}" == "$bw_adjustment" ]] && bw_adjustment="+${bw_adjustment}"
+        [[ "${bw_magenta_green#-}" == "$bw_magenta_green" ]] && bw_magenta_green="+${bw_magenta_green}"
+        mono_shift="WC ${bw_adjustment}, MG ${bw_magenta_green}"
+    else
+        mono_shift="0"
+    fi
+
+    local grain_effect=$(get_exif_value "$exif_data" "GrainEffectRoughness" "OFF" "false")
+    local grain_size=$(get_exif_value "$exif_data" "GrainEffectSize" "OFF" "false")
+
+    # Format grain effect
+    local grain_text="Off"
+    if [[ "$grain_effect" != "OFF" ]] && [[ "$grain_effect" != "Off" ]] && [[ "$grain_effect" != "off" ]]; then
+        grain_text="${grain_effect}"
+        if [[ "$grain_size" != "OFF" ]] && [[ "$grain_size" != "Off" ]] && [[ "$grain_size" != "off" ]]; then
+            grain_text="${grain_effect}, ${grain_size}"
+        fi
+    fi
+
+    local color_chrome=$(get_exif_value "$exif_data" "ColorChromeEffect" "OFF" "false")
+    local color_chrome_blue=$(get_exif_value "$exif_data" "ColorChromeFXBlue" "OFF" "false")
+
+    local exposure_bias_raw=$(format_exposure_bias "$(extract_numeric "$(get_exif_value "$exif_data" "ExposureCompensation" "0" "false" "EXIF")")")
+    local exposure_readable=$(exposure_to_readable "$exposure_bias_raw")
+
+    # Output in the requested format
+    cat << EOF
+[FUJI_RECIPE]
+Film Recipe: ${recipe_name}
+Simulation: ${film_sim_readable}
+Grain Effect: ${grain_text}
+Colour Chrome Effect: ${color_chrome}
+Colour Chrome Blue: ${color_chrome_blue}
+White Balance: ${wb_readable}
+WB Shift: ${wb_shift}
+Dynamic Range: ${dynamic_range}
+Highlights: ${highlight_tone}
+Shadows: ${shadow_tone}
+Color: ${color}
+Sharpness: ${sharpness}
+ISO Noise Reduction: ${noise_reduction}
+Clarity: ${clarity}
+Mono Shift: ${mono_shift}
+EV Compensation: ${exposure_readable}
+[/FUJI_RECIPE]
+EOF
+}
+
 # Compare generated recipe with all FP1 files
 compare_with_all_recipes() {
     local image_file="$1"
@@ -603,8 +828,8 @@ main() {
     elif [[ "$xml_flag" == true ]]; then
         generate_fp1 "$image_file"
     else
-        # Default behavior: compare with all recipes (100% match only)
-        compare_with_all_recipes "$image_file"
+        # Default behavior: generate human-readable recipe format
+        generate_readable_format "$image_file"
     fi
 }
 
