@@ -11,9 +11,10 @@ show_help() {
     cat << EOF
 Usage: $(basename "$0") [OPTIONS] IMAGE_FILE
 
-Extract EXIF data from images and convert to Fuji FP1 XML format.
+Extract EXIF data from Fujifilm images and display recipe information.
 
 OPTIONS:
+    --xml           Generate FP1 XML from image (output to stdout)
     --debug         Output all available EXIF data (raw format)
     --help, -h      Show this help message and exit
 
@@ -21,8 +22,11 @@ ARGUMENTS:
     IMAGE_FILE      Path to the image file to process
 
 EXAMPLES:
-    # Generate FP1 XML from image
+    # Extract recipe information in human-readable format
     $(basename "$0") photo.jpg
+
+    # Generate FP1 XML from image
+    $(basename "$0") --xml photo.jpg > recipe.FP1
 
     # Debug mode - show all EXIF data
     $(basename "$0") --debug photo.jpg
@@ -208,6 +212,83 @@ map_film_simulation() {
     esac
 }
 
+# Convert internal film simulation codes to readable names
+film_sim_to_readable() {
+    case "$1" in
+        "Provia") echo "Provia/Standard" ;;
+        "Velvia") echo "Velvia/Vivid" ;;
+        "Astia") echo "Astia/Soft" ;;
+        "Classic") echo "Classic Chrome" ;;
+        "NEGAhi") echo "PRO Neg. Hi" ;;
+        "NEGAStd") echo "PRO Neg. Std" ;;
+        "ClassicNEGA") echo "Classic Negative" ;;
+        "Eterna") echo "Eterna/Cinema" ;;
+        "BleachBypass") echo "Eterna Bleach Bypass" ;;
+        "NostalgicNEGA") echo "Nostalgic Negative" ;;
+        "Reala") echo "Reala Ace" ;;
+        "Acros") echo "Acros" ;;
+        "AcrosR") echo "Acros+R" ;;
+        "AcrosG") echo "Acros+G" ;;
+        "AcrosYe") echo "Acros+Ye" ;;
+        "Sepia") echo "Sepia" ;;
+        "BW") echo "Monochrome" ;;
+        "BR") echo "Monochrome+R" ;;
+        "BG") echo "Monochrome+G" ;;
+        "BYe") echo "Monochrome+Ye" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# Convert internal white balance codes to readable names
+wb_to_readable() {
+    case "$1" in
+        "Auto") echo "Auto" ;;
+        "Auto_White") echo "Auto (White Priority)" ;;
+        "Auto_Ambience") echo "Auto (Ambiance Priority)" ;;
+        "Custom1") echo "Custom" ;;
+        "Custom2") echo "Custom 2" ;;
+        "Custom3") echo "Custom 3" ;;
+        "Temperature") echo "Kelvin" ;;
+        "FLight1") echo "Daylight Fluorescent" ;;
+        "FLight2") echo "Day White Fluorescent" ;;
+        "FLight3") echo "White Fluorescent" ;;
+        "Daylight") echo "Daylight" ;;
+        "Shade") echo "Cloudy" ;;
+        "Incand") echo "Incandescent" ;;
+        "UWater") echo "Underwater" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# Convert exposure bias format to readable
+exposure_to_readable() {
+    local value="$1"
+
+    [[ -z "$value" || "$value" == "0" ]] && echo "0" && return
+
+    # Parse format like "P0P33" or "M1P00"
+    local sign="${value:0:1}"
+    local rest="${value#?}"
+    local int_part="${rest%%P*}"
+    local dec_part="${rest#*P}"
+
+    # Convert sign
+    local sign_char=""
+    [[ "$sign" == "M" ]] && sign_char="-"
+    [[ "$sign" == "P" ]] && sign_char="+"
+
+    # Build the readable format
+    if [[ "${dec_part}" == "00" ]]; then
+        echo "${sign_char}${int_part}"
+    elif [[ "${dec_part}" == "33" ]]; then
+        echo "${sign_char}${int_part} 1/3"
+    elif [[ "${dec_part}" == "67" ]]; then
+        echo "${sign_char}${int_part} 2/3"
+    else
+        echo "${sign_char}${int_part}.${dec_part}"
+    fi
+}
+
 map_saturation_bw() {
     local saturation=$(echo "$1" | tr '[:upper:]' '[:lower:]')
 
@@ -261,6 +342,12 @@ generate_fp1() {
 
     # Extract EXIF data using the optimized function
     local fuji_model=$(get_exif_value "$exif_data" "FujiModel" "")
+
+    # Check if this is a Fujifilm camera - skip if FujiModel is empty
+    if [[ -z "$fuji_model" ]]; then
+        exit 1
+    fi
+
     local camera_model="${fuji_model%%_*}"  # Extract camera name before underscore
     if [[ -z "$camera_model" ]]; then
         camera_model=$(get_exif_value "$exif_data" "Model" "")
@@ -373,8 +460,324 @@ generate_fp1() {
 EOF
 }
 
+# Extract a field value from XML
+extract_xml_field() {
+    local xml_content="$1"
+    local field_name="$2"
+
+    echo "$xml_content" | grep -o "<${field_name}>[^<]*</${field_name}>" | sed "s/<${field_name}>//;s/<\/${field_name}>//"
+}
+
+# Get all FP1 files from X RAW STUDIO folder
+get_fp1_files() {
+    local xraw_dir="$HOME/Library/Application Support/com.fujifilm.denji/X RAW STUDIO"
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local recipes_dir="$script_dir/Recipes"
+
+    local found_files=""
+
+    # Check X RAW STUDIO directory
+    if [[ -d "$xraw_dir" ]]; then
+        local xraw_files=$(find "$xraw_dir" -name "*.FP1" -type f 2>/dev/null || true)
+        if [[ -n "$xraw_files" ]]; then
+            found_files="$xraw_files"
+        fi
+    fi
+
+    # Check local Recipes directory
+    if [[ -d "$recipes_dir" ]]; then
+        local recipe_files=$(find "$recipes_dir" -name "*.FP1" -type f 2>/dev/null || true)
+        if [[ -n "$recipe_files" ]]; then
+            if [[ -n "$found_files" ]]; then
+                found_files="$found_files"$'\n'"$recipe_files"
+            else
+                found_files="$recipe_files"
+            fi
+        fi
+    fi
+
+    if [[ -z "$found_files" ]]; then
+        echo "Warning: No FP1 files found" >&2
+        echo "Searched locations:" >&2
+        echo "  - $xraw_dir" >&2
+        echo "  - $recipes_dir" >&2
+        return 1
+    fi
+
+    echo "$found_files"
+}
+
+# Define mandatory fields that must match (all fields)
+# GrainEffect, GrainEffectSize, and Clarity were removed from the mandatory fields because they are likely to be deleted by the user.
+get_mandatory_fields() {
+    cat << 'EOF'
+FilmSimulation
+WBShiftR
+WBShiftB
+WhiteBalance
+WBColorTemp
+ChromeEffect
+ColorChromeBlue
+HighlightTone
+ShadowTone
+DynamicRange
+Color
+Sharpness
+NoisReduction
+BlackImageTone
+MonochromaticColor_RG
+EOF
+}
+
+# Compare two values with fuzzy matching for numeric fields
+values_match() {
+    local field="$1"
+    local val1="$2"
+    local val2="$3"
+
+    # Empty value handling
+    if [[ -z "$val1" ]] && [[ -z "$val2" ]]; then
+        return 0
+    fi
+    if [[ -z "$val1" ]] || [[ -z "$val2" ]]; then
+        return 1
+    fi
+
+    # Exact match
+    if [[ "$val1" == "$val2" ]]; then
+        return 0
+    fi
+
+    # For numeric fields, allow small differences (e.g., 0 vs 0.0)
+    if [[ "$val1" =~ ^-?[0-9]+\.?[0-9]*$ ]] && [[ "$val2" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
+        local diff=$(echo "$val1 - $val2" | bc 2>/dev/null | tr -d '-')
+        if (( $(echo "$diff < 0.1" | bc -l 2>/dev/null) )); then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Compare generated XML with a recipe FP1 file
+compare_recipes() {
+    local generated_xml="$1"
+    local recipe_file="$2"
+
+    if [[ ! -f "$recipe_file" ]]; then
+        echo "Error: Recipe file not found: $recipe_file" >&2
+        return 1
+    fi
+
+    local recipe_xml=$(cat "$recipe_file")
+    local recipe_name=$(basename "$recipe_file" .FP1)
+
+    # Get mandatory fields
+    local mandatory_fields=$(get_mandatory_fields)
+
+    # Check all fields - all must match for 100% match
+    while IFS= read -r field; do
+        [[ -z "$field" ]] && continue
+
+        # Skip WBColorTemp if WhiteBalance is not Temperature
+        if [[ "$field" == "WBColorTemp" ]]; then
+            local wb_value=$(extract_xml_field "$generated_xml" "WhiteBalance")
+            if [[ "$wb_value" != "Temperature" ]]; then
+                continue
+            fi
+        fi
+
+        local generated_value=$(extract_xml_field "$generated_xml" "$field")
+        local recipe_value=$(extract_xml_field "$recipe_xml" "$field")
+
+        if ! values_match "$field" "$generated_value" "$recipe_value"; then
+            # Field doesn't match - skip this recipe entirely
+            return 0
+        fi
+    done <<< "$mandatory_fields"
+
+    # All fields matched - output the recipe name
+    echo "$recipe_name"
+}
+
+# Compare generated recipe with all FP1 files and return recipe name
+find_matching_recipe() {
+    local image_file="$1"
+
+    # Generate XML from image (but don't show it)
+    local generated_xml
+    generated_xml=$(generate_fp1 "$image_file" 2>/dev/null) || return 1
+
+    # Get all FP1 files
+    local fp1_files
+    fp1_files=$(get_fp1_files 2>/dev/null) || return 1
+
+    # Compare with each recipe, stop on first match
+    while IFS= read -r recipe_file; do
+        local result=$(compare_recipes "$generated_xml" "$recipe_file")
+        if [[ -n "$result" ]]; then
+            echo "$result"
+            return 0
+        fi
+    done <<< "$fp1_files"
+
+    return 1
+}
+
+# Generate human-readable recipe format
+generate_readable_format() {
+    local image_file="$1"
+
+    if [[ ! -f "$image_file" ]]; then
+        echo "Error: File not found: $image_file" >&2
+        exit 1
+    fi
+
+    # Extract all EXIF data once in JSON format
+    local exif_data
+    exif_data=$(extract_exif_json "$image_file")
+
+    # Check if this is a Fujifilm camera
+    local fuji_model=$(get_exif_value "$exif_data" "FujiModel" "")
+    if [[ -z "$fuji_model" ]]; then
+        echo "Error: Not a Fujifilm image" >&2
+        exit 1
+    fi
+
+    # Find recipe name
+    local recipe_name
+    recipe_name=$(find_matching_recipe "$image_file" 2>/dev/null)
+    if [[ -z "$recipe_name" ]]; then
+        recipe_name="Unknown"
+    fi
+
+    # Extract all values
+    local film_sim_raw=$(get_exif_value "$exif_data" "FilmMode" "")
+    local film_simulation=$(map_film_simulation "$film_sim_raw")
+
+    if [[ -z "$film_simulation" ]]; then
+        local saturation_raw=$(get_exif_value "$exif_data" "Saturation" "")
+        film_simulation=$(map_saturation_bw "$saturation_raw")
+    fi
+
+    local film_sim_readable=$(film_sim_to_readable "$film_simulation")
+
+    local wb_raw=$(get_exif_value "$exif_data" "WhiteBalance" "Auto")
+    local white_balance=$(map_white_balance "$wb_raw")
+    local wb_readable=$(wb_to_readable "$white_balance")
+
+    local wb_fine_tune=$(get_exif_value "$exif_data" "WhiteBalanceFineTune" "Red +0, Blue +0")
+    local wb_shift_r=$(parse_wb_shift "$wb_fine_tune" "red")
+    local wb_shift_b=$(parse_wb_shift "$wb_fine_tune" "blue")
+
+    # Format WB shift
+    local wb_shift=""
+    if [[ "$wb_shift_r" != "0" ]] || [[ "$wb_shift_b" != "0" ]]; then
+        [[ "${wb_shift_r#-}" == "$wb_shift_r" ]] && wb_shift_r="+${wb_shift_r}"
+        [[ "${wb_shift_b#-}" == "$wb_shift_b" ]] && wb_shift_b="+${wb_shift_b}"
+        wb_shift="${wb_shift_r} Red, ${wb_shift_b} Blue"
+    else
+        wb_shift="0"
+    fi
+
+    local dynamic_range=$(get_exif_value "$exif_data" "DevelopmentDynamicRange" "")
+    if [[ -z "$dynamic_range" ]]; then
+        dynamic_range=$(get_exif_value "$exif_data" "AutoDynamicRange" "100")
+        dynamic_range="${dynamic_range%\%}"
+    fi
+    [[ "$dynamic_range" != *"DR"* ]] && dynamic_range="DR${dynamic_range}"
+
+    local highlight_tone=$(extract_numeric "$(get_exif_value "$exif_data" "HighlightTone" "0")")
+    local shadow_tone=$(extract_numeric "$(get_exif_value "$exif_data" "ShadowTone" "0")")
+    local color=$(extract_numeric "$(get_exif_value "$exif_data" "Saturation" "0")")
+    local sharpness=$(extract_numeric "$(get_exif_value "$exif_data" "Sharpness" "0")")
+    local noise_reduction=$(extract_numeric "$(get_exif_value "$exif_data" "NoiseReduction" "0")")
+    local clarity=$(extract_numeric "$(get_exif_value "$exif_data" "Clarity" "0")")
+
+    local bw_adjustment=$(extract_numeric "$(get_exif_value "$exif_data" "BWAdjustment" "0")")
+    local bw_magenta_green=$(extract_numeric "$(get_exif_value "$exif_data" "BWMagentaGreen" "0")")
+
+    # Format mono shift
+    local mono_shift=""
+    if [[ "$bw_adjustment" != "0" ]] || [[ "$bw_magenta_green" != "0" ]]; then
+        [[ "${bw_adjustment#-}" == "$bw_adjustment" ]] && bw_adjustment="+${bw_adjustment}"
+        [[ "${bw_magenta_green#-}" == "$bw_magenta_green" ]] && bw_magenta_green="+${bw_magenta_green}"
+        mono_shift="WC ${bw_adjustment}, MG ${bw_magenta_green}"
+    else
+        mono_shift="0"
+    fi
+
+    local grain_effect=$(get_exif_value "$exif_data" "GrainEffectRoughness" "OFF" "false")
+    local grain_size=$(get_exif_value "$exif_data" "GrainEffectSize" "OFF" "false")
+
+    # Format grain effect
+    local grain_text="Off"
+    if [[ "$grain_effect" != "OFF" ]] && [[ "$grain_effect" != "Off" ]] && [[ "$grain_effect" != "off" ]]; then
+        grain_text="${grain_effect}"
+        if [[ "$grain_size" != "OFF" ]] && [[ "$grain_size" != "Off" ]] && [[ "$grain_size" != "off" ]]; then
+            grain_text="${grain_effect}, ${grain_size}"
+        fi
+    fi
+
+    local color_chrome=$(get_exif_value "$exif_data" "ColorChromeEffect" "OFF" "false")
+    local color_chrome_blue=$(get_exif_value "$exif_data" "ColorChromeFXBlue" "OFF" "false")
+
+    local exposure_bias_raw=$(format_exposure_bias "$(extract_numeric "$(get_exif_value "$exif_data" "ExposureCompensation" "0" "false" "EXIF")")")
+    local exposure_readable=$(exposure_to_readable "$exposure_bias_raw")
+
+    # Output in the requested format
+    cat << EOF
+[FUJI_RECIPE]
+Film Recipe: ${recipe_name}
+Simulation: ${film_sim_readable}
+Grain Effect: ${grain_text}
+Colour Chrome Effect: ${color_chrome}
+Colour Chrome Blue: ${color_chrome_blue}
+White Balance: ${wb_readable}
+WB Shift: ${wb_shift}
+Dynamic Range: ${dynamic_range}
+Highlights: ${highlight_tone}
+Shadows: ${shadow_tone}
+Color: ${color}
+Sharpness: ${sharpness}
+ISO Noise Reduction: ${noise_reduction}
+Clarity: ${clarity}
+Mono Shift: ${mono_shift}
+EV Compensation: ${exposure_readable}
+[/FUJI_RECIPE]
+EOF
+}
+
+# Compare generated recipe with all FP1 files
+compare_with_all_recipes() {
+    local image_file="$1"
+
+    # Generate XML from image (but don't show it)
+    local generated_xml
+    generated_xml=$(generate_fp1 "$image_file")
+
+    # Get all FP1 files
+    local fp1_files
+    fp1_files=$(get_fp1_files)
+
+    if [[ -z "$fp1_files" ]]; then
+        echo "No FP1 recipe files found" >&2
+        exit 1
+    fi
+
+    # Compare with each recipe, stop on first match
+    while IFS= read -r recipe_file; do
+        local result=$(compare_recipes "$generated_xml" "$recipe_file")
+        if [[ -n "$result" ]]; then
+            echo "$result"
+            return 0
+        fi
+    done <<< "$fp1_files"
+}
+
 main() {
     local debug_flag=false
+    local xml_flag=false
     local image_file=""
 
     # Parse arguments
@@ -383,6 +786,10 @@ main() {
             --help|-h)
                 show_help
                 exit 0
+                ;;
+            --xml)
+                xml_flag=true
+                shift
                 ;;
             --debug)
                 debug_flag=true
@@ -418,8 +825,11 @@ main() {
     # Execute based on mode
     if [[ "$debug_flag" == true ]]; then
         debug_mode "$image_file"
-    else
+    elif [[ "$xml_flag" == true ]]; then
         generate_fp1 "$image_file"
+    else
+        # Default behavior: generate human-readable recipe format
+        generate_readable_format "$image_file"
     fi
 }
 
