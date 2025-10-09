@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/opt/homebrew/bin/python3.10
 """
 Script: fuji-recipe-inspector.py
 Description: Extract EXIF data from images and convert to Fuji FP1 XML format
@@ -8,15 +8,25 @@ import sys
 import os
 import re
 import argparse
+import hashlib
 import json
+import photoscript
 import subprocess
 import shutil
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 import xml.etree.ElementTree as ET
 
+try:
+    from osxphotos import PhotosDB, QueryOptions, PhotoInfo
+    OSXPHOTOS_AVAILABLE = True
+except ImportError:
+    OSXPHOTOS_AVAILABLE = False
+
 VERSION = "0.0.1-dev"
 
+FUJI_RECIPE_COMMENT_PREFIX = "[FUJI_RECIPE]"
+FUJI_RECIPE_COMMENT_SUFFIX = "[/FUJI_RECIPE]"
 
 class FujiRecipeInspector:
     """Extract and convert Fujifilm recipe data from images."""
@@ -526,7 +536,8 @@ class FujiRecipeInspector:
             if result:
                 return result
 
-        return None
+        # If no match, return the hash of the generated XML, 8 characters long
+        return f"Unknown ({hashlib.sha256(generated_xml.encode('utf-8')).hexdigest()[:8]})"
 
     def get_fp1_files(self) -> List[str]:
         """Get all FP1 files from X RAW STUDIO folder and Recipes directory."""
@@ -631,7 +642,7 @@ class FujiRecipeInspector:
         exposure_readable = self.exposure_to_readable(exposure_bias_raw)
 
         # Build output
-        output = f"""[FUJI_RECIPE]
+        output = f"""{FUJI_RECIPE_COMMENT_PREFIX}
 Film Recipe: {recipe_name}
 Simulation: {film_sim_readable}
 Grain Effect: {grain_text}
@@ -651,7 +662,7 @@ Clarity: {clarity}"""
         if mono_shift is not None:
             output += f"\nMono Shift: {mono_shift}"
 
-        output += f"\nEV Compensation: {exposure_readable}\n[/FUJI_RECIPE]"
+        output += f"\nEV Compensation: {exposure_readable}\n{FUJI_RECIPE_COMMENT_SUFFIX}"
 
         return output
 
@@ -673,6 +684,40 @@ Clarity: {clarity}"""
             print(f"Error running exiftool: {e}", file=sys.stderr)
 
 
+def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo]):
+    """Add Fujifilm recipe description to photo description/caption"""
+    for photo in photos:
+        existing_description = photo.description or "" # description can be None
+        if FUJI_RECIPE_COMMENT_PREFIX in existing_description and "Film Recipe: Unknown" not in existing_description:
+            print(
+                f"Skipping {photo.original_filename} ({photo.uuid}) (Recipe already in description)"
+            )
+            continue
+
+        if "Film Recipe: Unknown" in existing_description:
+            # remove all the content between tags "[FUJI_RECIPE]" and "[/FUJI_RECIPE]"
+            existing_description = re.sub(re.escape(FUJI_RECIPE_COMMENT_PREFIX) + r'.*?' + re.escape(FUJI_RECIPE_COMMENT_SUFFIX), '', existing_description, flags=re.DOTALL)
+
+        existing_description = existing_description.strip()
+
+        inspector = FujiRecipeInspector(photo.path)
+        recipe_description = inspector.generate_readable_format()
+
+        new_desc = f"{existing_description}\n{recipe_description}" if existing_description else recipe_description
+        print(
+            f"Updating caption for {photo.original_filename} ({photo.uuid}) to {new_desc}"
+        )
+        update_description(photo, new_desc)
+
+def update_description(photo: PhotoInfo, new_desc: str):
+    """Update photo caption"""
+    try:
+        photoscript.Photo(photo.uuid).description = new_desc
+    except Exception as e:
+        print(
+            f"Error updating caption for {photo.original_filename} ({photo.uuid}): {e}"
+        )
+
 def main():
     parser = argparse.ArgumentParser(
         description="Extract EXIF data from Fujifilm images and display recipe information.",
@@ -681,6 +726,9 @@ def main():
 EXAMPLES:
     # Extract recipe information in human-readable format
     %(prog)s photo.jpg
+
+    # Use latest Fujifilm photo from Apple Photos
+    %(prog)s --apple-photos
 
     # Generate FP1 XML from image
     %(prog)s --xml photo.jpg > recipe.FP1
@@ -691,9 +739,13 @@ EXAMPLES:
 REQUIREMENTS:
     - exiftool must be installed
       macOS: brew install exiftool
+    - osxphotos (optional, for --apple-photos)
+      pip install osxphotos
         """)
 
-    parser.add_argument('image_file', help='Path to the image file to process')
+    parser.add_argument('image_file', nargs='?', help='Path to the image file to process')
+    parser.add_argument('--apple-photos', action='store_true',
+                        help='Use the latest Fujifilm photo from Apple Photos')
     parser.add_argument('--xml', action='store_true',
                         help='Generate FP1 XML from image (output to stdout)')
     parser.add_argument('--debug', action='store_true',
@@ -701,6 +753,31 @@ REQUIREMENTS:
     parser.add_argument('--version', action='version', version=f'%(prog)s {VERSION}')
 
     args = parser.parse_args()
+
+    # Handle --apple-photos mode
+    if args.apple_photos:
+        print("Searching for the latest Fujifilm photo from Apple Photos...\n", file=sys.stderr)
+
+        if not OSXPHOTOS_AVAILABLE:
+            print("Error: osxphotos is not installed", file=sys.stderr)
+            print("", file=sys.stderr)
+            print("Install it with:", file=sys.stderr)
+            print("  pip install osxphotos", file=sys.stderr)
+            sys.exit(1)
+
+        photosdb = PhotosDB()
+
+        fujifilm_photos = photosdb.query(
+            QueryOptions(exif=[("Make", "FUJIFILM")], shared=False)
+        )
+
+        fujifilm_photos = sorted(fujifilm_photos, key=lambda x: x.date, reverse=True)
+        print(f"Processing {len(fujifilm_photos)} photos...")
+
+        add_fujifilm_recipe_description_to_photos(fujifilm_photos)
+
+        print("Done.")
+        return
 
     try:
         inspector = FujiRecipeInspector(args.image_file)
