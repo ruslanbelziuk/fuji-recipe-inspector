@@ -697,8 +697,15 @@ Clarity: {clarity}"""
             print(f"Error running exiftool: {e}", file=sys.stderr)
 
 
-def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo]):
-    """Add Fujifilm recipe description to photo description/caption"""
+def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photos: int = 20):
+    """Add Fujifilm recipe description to photo description/caption
+    
+    Args:
+        photos: List of photos to process
+        max_photos: Maximum number of photos to process (excluding skipped ones)
+    """
+    processed_count = 0
+    
     for photo in photos:
         existing_description = photo.description or "" # description can be None
         if FUJI_RECIPE_COMMENT_PREFIX in existing_description and "Film Recipe: Unknown" not in existing_description:
@@ -730,6 +737,11 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo]):
         album.add(photo)
 
         print(f"Added to album {album_name}")
+        
+        processed_count += 1
+        if processed_count >= max_photos:
+            print(f"\nReached maximum of {max_photos} processed photos. Stopping.")
+            break
 
 def update_description(photo: PhotoInfo, new_desc: str):
     """Update photo caption"""
