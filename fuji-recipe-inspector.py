@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 
 try:
     from osxphotos import PhotosDB, QueryOptions, PhotoInfo
+    from osxphotos.photosalbum import PhotosAlbum
     OSXPHOTOS_AVAILABLE = True
 except ImportError:
     OSXPHOTOS_AVAILABLE = False
@@ -708,6 +709,15 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo]):
             f"Updating caption for {photo.original_filename} ({photo.uuid}) to {new_desc}"
         )
         update_description(photo, new_desc)
+
+        recipe_name = inspector.find_matching_recipe()
+        album_name = "Fuji Recipe. " + recipe_name
+
+        print(f"Adding {photo.original_filename} ({photo.uuid}) to album {album_name}")
+        album = PhotosAlbum(album_name)
+        album.add(photo)
+
+        print(f"Added to album {album_name}")
 
 def update_description(photo: PhotoInfo, new_desc: str):
     """Update photo caption"""
