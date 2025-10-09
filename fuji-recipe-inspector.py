@@ -321,8 +321,13 @@ class FujiRecipeInspector:
         else:
             return f"{sign}{int_part}.{dec_part}"
 
-    def generate_fp1(self) -> str:
-        """Generate FP1 XML from image EXIF data."""
+    def generate_fp1(self) -> tuple[str, str]:
+        """Generate FP1 XML from image EXIF data.
+        
+        Returns:
+            tuple[str, str]: (xml_string, hash_value) where hash_value is calculated
+                            from PropertyGroup content only (excluding attributes)
+        """
         # Check if this is a Fujifilm camera
         fuji_model = self.get_exif_value("FujiModel", "")
         if not fuji_model:
@@ -398,22 +403,7 @@ class FujiRecipeInspector:
         # Camera version
         camera_version = fuji_model if fuji_model else f"{camera_model.replace(' ', '-')}_0100"
 
-        # Build XML
-        xml = f'''<?xml version="1.0" encoding="utf-8"?>
-<ConversionProfile application="XRFC" version="1.12.0.0">
-    <PropertyGroup device="{camera_model}" version="{camera_version}" label="{label}">
-        <SerialNumber>{serial_number}</SerialNumber>
-        <TetherRAWConditonCode>{camera_version}</TetherRAWConditonCode>
-        <Editable>TRUE</Editable>
-        <SourceFileName/>
-        <Fileerror>NONE</Fileerror>
-        <RotationAngle>0</RotationAngle>
-        <StructVer>65536</StructVer>
-        <IOPCode>FF159509</IOPCode>
-        <ShootingCondition>OFF</ShootingCondition>
-        <FileType>JPG</FileType>
-        <ImageSize>L3x2</ImageSize>
-        <ImageQuality>Fine</ImageQuality>
+        properties_xml = f'''
         <ExposureBias>{exposure_bias}</ExposureBias>
         <DynamicRange>{dynamic_range}</DynamicRange>
         <WideDRange>0</WideDRange>
@@ -436,6 +426,24 @@ class FujiRecipeInspector:
         <Sharpness>{sharpness}</Sharpness>
         <NoisReduction>{noise_reduction}</NoisReduction>
         <Clarity>{clarity}</Clarity>
+        '''
+
+        xml = f'''<?xml version="1.0" encoding="utf-8"?>
+<ConversionProfile application="XRFC" version="1.12.0.0">
+    <PropertyGroup device="{camera_model}" version="{camera_version}" label="{label}">
+        <SerialNumber>{serial_number}</SerialNumber>
+        <TetherRAWConditonCode>{camera_version}</TetherRAWConditonCode>
+        <Editable>TRUE</Editable>
+        <SourceFileName/>
+        <Fileerror>NONE</Fileerror>
+        <RotationAngle>0</RotationAngle>
+        <StructVer>65536</StructVer>
+        <IOPCode>FF159509</IOPCode>
+        <ShootingCondition>OFF</ShootingCondition>
+        <FileType>JPG</FileType>
+        <ImageSize>L3x2</ImageSize>
+        <ImageQuality>Fine</ImageQuality>
+{properties_xml}
         <LensModulationOpt>ON</LensModulationOpt>
         <ColorSpace>sRGB</ColorSpace>
         <HDR/>
@@ -444,7 +452,9 @@ class FujiRecipeInspector:
     </PropertyGroup>
 </ConversionProfile>'''
 
-        return xml
+        hash_value = hashlib.sha256(properties_xml.encode('utf-8')).hexdigest()[:8]
+
+        return xml, hash_value
 
     def extract_xml_field(self, xml_content: str, field_name: str) -> str:
         """Extract field value from XML."""
@@ -524,7 +534,7 @@ class FujiRecipeInspector:
     def find_matching_recipe(self) -> Optional[str]:
         """Find matching recipe from FP1 files."""
         try:
-            generated_xml = self.generate_fp1()
+            generated_xml, hash_value = self.generate_fp1()
         except:
             return None
 
@@ -537,8 +547,10 @@ class FujiRecipeInspector:
             if result:
                 return result
 
-        # If no match, return the hash of the generated XML, 8 characters long
-        return f"Unknown ({hashlib.sha256(generated_xml.encode('utf-8')).hexdigest()[:8]})"
+        if hash_value:
+            return f"Unknown ({hash_value})"
+        
+        return "Unknown"
 
     def get_fp1_files(self) -> List[str]:
         """Get all FP1 files from X RAW STUDIO folder and Recipes directory."""
@@ -795,7 +807,8 @@ REQUIREMENTS:
         if args.debug:
             inspector.debug_mode()
         elif args.xml:
-            print(inspector.generate_fp1())
+            xml_output, _ = inspector.generate_fp1()
+            print(xml_output)
         else:
             print(inspector.generate_readable_format())
 
