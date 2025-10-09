@@ -732,12 +732,12 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
         recipe_name = inspector.find_matching_recipe()
         album_name = "Fuji Recipe. " + recipe_name
 
-        print(f"Adding {photo.original_filename} ({photo.uuid}) to album {album_name}")
-        album = PhotosAlbum(album_name)
-        album.add(photo)
+        if not album_name in photo.albums:
+            print(f"Adding {photo.original_filename} ({photo.uuid}) to album {album_name}")
+            album = PhotosAlbum(album_name)
+            album.add(photo)
+            print(f"Added to album {album_name}")
 
-        print(f"Added to album {album_name}")
-        
         processed_count += 1
         if processed_count >= max_photos:
             print(f"\nReached maximum of {max_photos} processed photos. Stopping.")
