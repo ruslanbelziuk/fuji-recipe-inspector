@@ -405,7 +405,6 @@ class FujiRecipeInspector:
         camera_version = fuji_model if fuji_model else f"{camera_model.replace(' ', '-')}_0100"
 
         properties_xml = f'''
-        <ExposureBias>{exposure_bias}</ExposureBias>
         <DynamicRange>{dynamic_range}</DynamicRange>
         <WideDRange>0</WideDRange>
         <FilmSimulation>{film_simulation}</FilmSimulation>
@@ -425,8 +424,6 @@ class FujiRecipeInspector:
         <ShadowTone>{shadow_tone}</ShadowTone>
         <Color>{color}</Color>
         <Sharpness>{sharpness}</Sharpness>
-        <NoisReduction>{noise_reduction}</NoisReduction>
-        <Clarity>{clarity}</Clarity>
         '''
 
         xml = f'''<?xml version="1.0" encoding="utf-8"?>
@@ -444,7 +441,10 @@ class FujiRecipeInspector:
         <FileType>JPG</FileType>
         <ImageSize>L3x2</ImageSize>
         <ImageQuality>Fine</ImageQuality>
+        <ExposureBias>{exposure_bias}</ExposureBias>
 {properties_xml}
+        <NoisReduction>{noise_reduction}</NoisReduction>
+        <Clarity>{clarity}</Clarity>
         <LensModulationOpt>ON</LensModulationOpt>
         <ColorSpace>sRGB</ColorSpace>
         <HDR/>
