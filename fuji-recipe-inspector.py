@@ -698,7 +698,7 @@ Clarity: {clarity}"""
             print(f"Error running exiftool: {e}", file=sys.stderr)
 
 
-def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photos: int = 20):
+def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photos: int = 10000):
     """Add Fujifilm recipe description to photo description/caption
     
     Args:
@@ -726,6 +726,11 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
         if photo.ismissing:
             print(f"Downloading photo {photo.original_filename}")
             downloaded += 1
+
+            for filename in exported:
+                print(f"Removing temporary file {filename}")
+                os.unlink(filename)
+
             exported = photo.export(tempdir.name, use_photos_export=True, timeout=600)
             if photo.hasadjustments:
                 exported.extend(
@@ -742,12 +747,15 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
 
         photo_path = exported[0] if exported else photo.path
         inspector = FujiRecipeInspector(photo_path)
-        recipe_description = inspector.generate_readable_format()
+
+        try:
+            recipe_description = inspector.generate_readable_format()
+        except Exception as e:
+            print(f"Error generating readable format for {photo.original_filename} ({photo.uuid}): {e}")
+            continue
 
         new_desc = f"{existing_description}\n{recipe_description}" if existing_description else recipe_description
-        print(
-            f"Updating caption for {photo.original_filename} ({photo.uuid}) to {new_desc}"
-        )
+        # print(f"Updating caption for {photo.original_filename} ({photo.uuid}) to {new_desc}")
         update_description(photo, new_desc)
 
         recipe_name = inspector.find_matching_recipe()
@@ -757,17 +765,17 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
             print(f"Adding {photo.original_filename} ({photo.uuid}) to album {album_name}")
             album = PhotosAlbum(album_name)
             album.add(photo)
-            print(f"Added to album {album_name}")
-
-        for filename in exported:
-            print(f"Removing temporary file {filename}")
-            os.unlink(filename)
-        exported = []
+            print(f"Added to album")
 
         processed_count += 1
         if processed_count >= max_photos:
             print(f"\nReached maximum of {max_photos} processed photos. Stopping.")
             break
+
+    for filename in exported:
+        print(f"Removing temporary file {filename}")
+        os.unlink(filename)
+    exported = []
 
     print(f"Downloaded {downloaded} photos")
     tempdir.cleanup()
