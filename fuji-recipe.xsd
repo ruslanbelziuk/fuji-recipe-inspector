@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
+    <xs:element name="ConversionProfile">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="PropertyGroup" type="PropertyGroupType"/>
+            </xs:sequence>
+            <xs:attribute name="application" type="xs:string" use="required"/>
+            <xs:attribute name="version" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+    
+    <xs:complexType name="PropertyGroupType">
+        <xs:sequence>
+            <xs:element name="SerialNumber" type="xs:string"/>
+            <xs:element name="TetherRAWConditonCode" type="xs:string"/>
+            <xs:element name="Editable" type="BooleanType"/>
+            <xs:element name="SourceFileName" type="xs:string"/>
+            <xs:element name="Fileerror" type="FileErrorType"/>
+            <xs:element name="RotationAngle" type="xs:integer"/>
+            <xs:element name="StructVer" type="xs:integer"/>
+            <xs:element name="IOPCode" type="xs:string"/>
+            <xs:element name="ShootingCondition" type="OnOffType"/>
+            <xs:element name="FileType" type="FileTypeEnum"/>
+            <xs:element name="ImageSize" type="xs:string"/>
+            <xs:element name="ImageQuality" type="ImageQualityEnum"/>
+            <xs:element name="ExposureBias" type="ExposureBiasType"/>
+            <xs:element name="DynamicRange" type="DynamicRangeType"/>
+            <xs:element name="WideDRange" type="WideDRangeType"/>
+            <xs:element name="FilmSimulation" type="FilmSimulationType"/>
+            <xs:element name="BlackImageTone" type="OptionalAdjustmentRangeType"/>
+            <xs:element name="MonochromaticColor_RG" type="OptionalAdjustmentRangeType"/>
+            <xs:element name="GrainEffect" type="EffectStrengthType"/>
+            <xs:element name="GrainEffectSize" type="GrainSizeType"/>
+            <xs:element name="ChromeEffect" type="EffectStrengthType"/>
+            <xs:element name="ColorChromeBlue" type="EffectStrengthType"/>
+            <xs:element name="SmoothSkinEffect" type="EffectStrengthType"/>
+            <xs:element name="WBShootCond" type="OnOffType"/>
+            <xs:element name="WhiteBalance" type="WhiteBalanceType"/>
+            <xs:element name="WBShiftR" type="OptionalWBShiftType"/>
+            <xs:element name="WBShiftB" type="OptionalWBShiftType"/>
+            <xs:element name="WBColorTemp" type="ColorTempType"/>
+            <xs:element name="HighlightTone" type="ToneRangeType"/>
+            <xs:element name="ShadowTone" type="ToneRangeType"/>
+            <xs:element name="Color" type="ColorRangeType"/>
+            <xs:element name="Sharpness" type="SharpnessRangeType"/>
+            <xs:element name="NoisReduction" type="NoiseReductionRangeType"/>
+            <xs:element name="Clarity" type="ClarityRangeType"/>
+            <xs:element name="LensModulationOpt" type="OnOffType"/>
+            <xs:element name="ColorSpace" type="ColorSpaceEnum"/>
+            <xs:element name="HDR" type="xs:string" minOccurs="0"/>
+            <xs:element name="DigitalTeleConv" type="OptionalOnOffType"/>
+            <xs:element name="PortraitEnhancer" type="xs:string" minOccurs="0"/>
+        </xs:sequence>
+        <xs:attribute name="device" type="xs:string" use="required"/>
+        <xs:attribute name="version" type="xs:string" use="required"/>
+        <xs:attribute name="label" type="xs:string" use="required"/>
+    </xs:complexType>
+    
+    <xs:simpleType name="BooleanType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="TRUE"/>
+            <xs:enumeration value="FALSE"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="OnOffType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="ON"/>
+            <xs:enumeration value="OFF"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="FileErrorType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="NONE"/>
+            <xs:enumeration value="ERROR"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="FileTypeEnum">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="JPG"/>
+            <xs:enumeration value="RAF"/>
+            <xs:enumeration value="TIFF"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="ImageQualityEnum">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Fine"/>
+            <xs:enumeration value="Normal"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="ColorSpaceEnum">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="sRGB"/>
+            <xs:enumeration value="AdobeRGB"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="ExposureBiasType">
+        <xs:union>
+            <xs:simpleType>
+                <xs:restriction base="xs:string">
+                    <xs:enumeration value="0"/>
+                </xs:restriction>
+            </xs:simpleType>
+            <xs:simpleType>
+                <xs:restriction base="xs:string">
+                    <xs:pattern value="[PM]\d+P\d{2}"/>
+                </xs:restriction>
+            </xs:simpleType>
+        </xs:union>
+    </xs:simpleType>
+    
+    <xs:simpleType name="DynamicRangeType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Auto"/>
+            <xs:enumeration value="100"/>
+            <xs:enumeration value="200"/>
+            <xs:enumeration value="400"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="WideDRangeType">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="(0|P[\d+]|)?"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="FilmSimulationType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Provia"/>
+            <xs:enumeration value="Velvia"/>
+            <xs:enumeration value="Astia"/>
+            <xs:enumeration value="Classic"/>
+            <xs:enumeration value="NEGAhi"/>
+            <xs:enumeration value="NEGAStd"/>
+            <xs:enumeration value="ClassicNEGA"/>
+            <xs:enumeration value="Eterna"/>
+            <xs:enumeration value="BleachBypass"/>
+            <xs:enumeration value="NostalgicNEGA"/>
+            <xs:enumeration value="Reala"/>
+            <xs:enumeration value="Acros"/>
+            <xs:enumeration value="AcrosR"/>
+            <xs:enumeration value="AcrosG"/>
+            <xs:enumeration value="AcrosYe"/>
+            <xs:enumeration value="Sepia"/>
+            <xs:enumeration value="BW"/>
+            <xs:enumeration value="BR"/>
+            <xs:enumeration value="BG"/>
+            <xs:enumeration value="BYe"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="EffectStrengthType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="OFF"/>
+            <xs:enumeration value="WEAK"/>
+            <xs:enumeration value="STRONG"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="GrainSizeType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="OFF"/>
+            <xs:enumeration value="SMALL"/>
+            <xs:enumeration value="LARGE"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="WhiteBalanceType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Auto"/>
+            <xs:enumeration value="Auto_White"/>
+            <xs:enumeration value="Auto_Ambience"/>
+            <xs:enumeration value="Custom1"/>
+            <xs:enumeration value="Custom2"/>
+            <xs:enumeration value="Custom3"/>
+            <xs:enumeration value="Temperature"/>
+            <xs:enumeration value="FLight1"/>
+            <xs:enumeration value="FLight2"/>
+            <xs:enumeration value="FLight3"/>
+            <xs:enumeration value="Daylight"/>
+            <xs:enumeration value="Shade"/>
+            <xs:enumeration value="Incand"/>
+            <xs:enumeration value="UWater"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="ColorTempType">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="\d+[Kk]"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="WBShiftType">
+        <xs:restriction base="xs:integer">
+            <xs:minInclusive value="-9"/>
+            <xs:maxInclusive value="9"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="OptionalWBShiftType">
+        <xs:union memberTypes="WBShiftType">
+            <xs:simpleType>
+                <xs:restriction base="xs:string">
+                    <xs:enumeration value=""/>
+                </xs:restriction>
+            </xs:simpleType>
+        </xs:union>
+    </xs:simpleType>
+    
+    <xs:simpleType name="ToneRangeType">
+        <xs:restriction base="xs:decimal">
+            <xs:pattern value="-?(0|0\.5|1|1\.5|2|2\.5|3|3\.5|4)"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="ColorRangeType">
+        <xs:restriction base="xs:integer">
+            <xs:minInclusive value="-4"/>
+            <xs:maxInclusive value="4"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="SharpnessRangeType">
+        <xs:restriction base="xs:integer">
+            <xs:minInclusive value="-4"/>
+            <xs:maxInclusive value="4"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="NoiseReductionRangeType">
+        <xs:restriction base="xs:integer">
+            <xs:minInclusive value="-4"/>
+            <xs:maxInclusive value="4"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="ClarityRangeType">
+        <xs:restriction base="xs:integer">
+            <xs:minInclusive value="-5"/>
+            <xs:maxInclusive value="5"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="AdjustmentRangeType">
+        <xs:restriction base="xs:integer">
+            <xs:minInclusive value="-20"/>
+            <xs:maxInclusive value="20"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="OptionalAdjustmentRangeType">
+        <xs:union memberTypes="AdjustmentRangeType">
+            <xs:simpleType>
+                <xs:restriction base="xs:string">
+                    <xs:enumeration value=""/>
+                </xs:restriction>
+            </xs:simpleType>
+        </xs:union>
+    </xs:simpleType>
+    
+    <xs:simpleType name="OptionalOnOffType">
+        <xs:union memberTypes="OnOffType">
+            <xs:simpleType>
+                <xs:restriction base="xs:string">
+                    <xs:enumeration value=""/>
+                </xs:restriction>
+            </xs:simpleType>
+        </xs:union>
+    </xs:simpleType>
+</xs:schema>
+
