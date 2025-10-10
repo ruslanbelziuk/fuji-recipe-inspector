@@ -13,6 +13,7 @@ import json
 import photoscript
 import subprocess
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 import xml.etree.ElementTree as ET
@@ -705,8 +706,16 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
         max_photos: Maximum number of photos to process (excluding skipped ones)
     """
     processed_count = 0
+
+    tempdir = tempfile.TemporaryDirectory()
+    downloaded = 0
+    exported = []
     
     for photo in photos:
+        if photo.exif_info.camera_make != "FUJIFILM":
+            print(f"Skipping {photo.original_filename} ({photo.uuid}) (Not a Fujifilm photo)")
+            continue
+
         existing_description = photo.description or "" # description can be None
         if FUJI_RECIPE_COMMENT_PREFIX in existing_description and "Film Recipe: Unknown" not in existing_description:
             print(
@@ -714,13 +723,25 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
             )
             continue
 
+        if photo.ismissing:
+            print(f"Downloading photo {photo.original_filename}")
+            downloaded += 1
+            exported = photo.export(tempdir.name, use_photos_export=True, timeout=600)
+            if photo.hasadjustments:
+                exported.extend(
+                    photo.export(
+                        tempdir.name, use_photos_export=True, edited=True, timeout=600
+                    )
+                )
+
         if "Film Recipe: Unknown" in existing_description:
             # remove all the content between tags "[FUJI_RECIPE]" and "[/FUJI_RECIPE]"
             existing_description = re.sub(re.escape(FUJI_RECIPE_COMMENT_PREFIX) + r'.*?' + re.escape(FUJI_RECIPE_COMMENT_SUFFIX), '', existing_description, flags=re.DOTALL)
 
         existing_description = existing_description.strip()
 
-        inspector = FujiRecipeInspector(photo.path)
+        photo_path = exported[0] if exported else photo.path
+        inspector = FujiRecipeInspector(photo_path)
         recipe_description = inspector.generate_readable_format()
 
         new_desc = f"{existing_description}\n{recipe_description}" if existing_description else recipe_description
@@ -738,10 +759,18 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
             album.add(photo)
             print(f"Added to album {album_name}")
 
+        for filename in exported:
+            print(f"Removing temporary file {filename}")
+            os.unlink(filename)
+        exported = []
+
         processed_count += 1
         if processed_count >= max_photos:
             print(f"\nReached maximum of {max_photos} processed photos. Stopping.")
             break
+
+    print(f"Downloaded {downloaded} photos")
+    tempdir.cleanup()
 
 def update_description(photo: PhotoInfo, new_desc: str):
     """Update photo caption"""
@@ -801,10 +830,13 @@ REQUIREMENTS:
 
         photosdb = PhotosDB()
 
-        fujifilm_photos = photosdb.query(
-            QueryOptions(exif=[("Make", "FUJIFILM")], shared=False)
+        fujifilm_photos = photosdb.photos(
+            images = True,
+            movies = False,
+            intrash = False,
         )
 
+        print(f"Found {len(fujifilm_photos)} photos")
         fujifilm_photos = sorted(fujifilm_photos, key=lambda x: x.date, reverse=True)
         print(f"Processing {len(fujifilm_photos)} photos...")
 
