@@ -33,6 +33,8 @@ FUJI_RECIPE_COMMENT_SUFFIX = "[/FUJI_RECIPE]"
 class FujiRecipeInspector:
     """Extract and convert Fujifilm recipe data from images."""
 
+    bw_film_simulations = ["Acros", "AcrosYe", "AcrosR", "AcrosG", "BYe", "BR", "BG", "Sepia", "BW"]
+
     def __init__(self, image_file: str):
         self.image_file = image_file
         self.exif_data: Dict[str, Any] = {}
@@ -529,11 +531,15 @@ class FujiRecipeInspector:
             recipe_value = self.extract_xml_field(recipe_xml, field)
 
             if not self.values_match(field, generated_value, recipe_value):
-                if field == "Color" and film_simulation in ["Acros", "AcrosYe", "AcrosR", "AcrosG", "BYe", "BR", "BG", "Sepia", "BW"]:
+                if field == "Color" and film_simulation in self.bw_film_simulations:
                     continue
 
-                if field in ["BlackImageTone", "MonochromaticColor_RG"] and recipe_value == "":
-                    continue
+                if field in ["BlackImageTone", "MonochromaticColor_RG"]:
+                    if recipe_value == "":
+                        continue
+
+                    if film_simulation not in self.bw_film_simulations:
+                        continue
 
                 if field == "DynamicRange" and recipe_value == "Auto":
                     continue
