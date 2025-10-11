@@ -764,17 +764,33 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
         photo_path = exported[0] if exported else photo.path
         inspector = FujiRecipeInspector(photo_path)
 
+        # Check if photo is in "Fuji Recipe. Custom" album
+        if "Fuji Recipe. Custom" in photo.albums:
+            recipe_name = "Custom"
+        else:
+            recipe_name = None
+
         try:
             recipe_description = inspector.generate_readable_format()
+            # If recipe name is "Custom", update the description
+            if recipe_name == "Custom":
+                # Replace the recipe name in the description
+                original_recipe = inspector.find_matching_recipe()
+                recipe_description = recipe_description.replace(
+                    f"Film Recipe: {original_recipe}",
+                    f"Film Recipe: Custom"
+                )
         except Exception as e:
             print(f"Error generating readable format for {photo.original_filename} ({photo.uuid}): {e}")
             continue
+
+        if recipe_name is None:
+            recipe_name = inspector.find_matching_recipe()
 
         new_desc = f"{existing_description}\n{recipe_description}" if existing_description else recipe_description
         # print(f"Updating caption for {photo.original_filename} ({photo.uuid}) to {new_desc}")
         update_description(photo, new_desc)
 
-        recipe_name = inspector.find_matching_recipe()
         album_name = "Fuji Recipe. " + recipe_name
 
         if not album_name in photo.albums:
