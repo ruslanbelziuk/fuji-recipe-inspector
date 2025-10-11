@@ -98,7 +98,8 @@ class FujiRecipeInspector:
         if match:
             num = match.group(0)
             return num.lstrip('+')
-        return value
+
+        return "0"
 
     def format_exposure_bias(self, value: str) -> str:
         """Format exposure bias to FP1 format (e.g., 'P0P33' or 'M1P00')."""
@@ -423,8 +424,7 @@ class FujiRecipeInspector:
         <HighlightTone>{highlight_tone}</HighlightTone>
         <ShadowTone>{shadow_tone}</ShadowTone>
         <Color>{color}</Color>
-        <Sharpness>{sharpness}</Sharpness>
-        '''
+        <Sharpness>{sharpness}</Sharpness>'''
 
         xml = f'''<?xml version="1.0" encoding="utf-8"?>
 <ConversionProfile application="XRFC" version="1.12.0.0">
@@ -441,8 +441,7 @@ class FujiRecipeInspector:
         <FileType>JPG</FileType>
         <ImageSize>L3x2</ImageSize>
         <ImageQuality>Fine</ImageQuality>
-        <ExposureBias>{exposure_bias}</ExposureBias>
-{properties_xml}
+        <ExposureBias>{exposure_bias}</ExposureBias>{properties_xml}
         <NoisReduction>{noise_reduction}</NoisReduction>
         <Clarity>{clarity}</Clarity>
         <LensModulationOpt>ON</LensModulationOpt>
