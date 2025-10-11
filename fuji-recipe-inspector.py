@@ -98,7 +98,8 @@ class FujiRecipeInspector:
         if match:
             num = match.group(0)
             return num.lstrip('+')
-        return value
+
+        return "0"
 
     def format_exposure_bias(self, value: str) -> str:
         """Format exposure bias to FP1 format (e.g., 'P0P33' or 'M1P00')."""
@@ -370,9 +371,9 @@ class FujiRecipeInspector:
 
         # Dynamic range
         dynamic_range = self.get_exif_value("DevelopmentDynamicRange", "")
-        if not dynamic_range:
-            dynamic_range = self.get_exif_value("AutoDynamicRange", "100")
-            dynamic_range = dynamic_range.rstrip('%')
+        dynamic_range_setting = self.get_exif_value("DynamicRangeSetting", "")
+        if (not dynamic_range) or dynamic_range_setting == "Auto":
+            dynamic_range = "Auto"
 
         # Tone and color settings
         highlight_tone = self.extract_numeric(self.get_exif_value("HighlightTone", "0"))
@@ -423,8 +424,7 @@ class FujiRecipeInspector:
         <HighlightTone>{highlight_tone}</HighlightTone>
         <ShadowTone>{shadow_tone}</ShadowTone>
         <Color>{color}</Color>
-        <Sharpness>{sharpness}</Sharpness>
-        '''
+        <Sharpness>{sharpness}</Sharpness>'''
 
         xml = f'''<?xml version="1.0" encoding="utf-8"?>
 <ConversionProfile application="XRFC" version="1.12.0.0">
@@ -441,8 +441,7 @@ class FujiRecipeInspector:
         <FileType>JPG</FileType>
         <ImageSize>L3x2</ImageSize>
         <ImageQuality>Fine</ImageQuality>
-        <ExposureBias>{exposure_bias}</ExposureBias>
-{properties_xml}
+        <ExposureBias>{exposure_bias}</ExposureBias>{properties_xml}
         <NoisReduction>{noise_reduction}</NoisReduction>
         <Clarity>{clarity}</Clarity>
         <LensModulationOpt>ON</LensModulationOpt>
@@ -517,6 +516,8 @@ class FujiRecipeInspector:
         recipe_name = os.path.splitext(os.path.basename(recipe_file))[0]
         mandatory_fields = self.get_mandatory_fields()
 
+        film_simulation = self.extract_xml_field(generated_xml, "FilmSimulation")
+
         for field in mandatory_fields:
             # Skip WBColorTemp if WhiteBalance is not Temperature
             if field == "WBColorTemp":
@@ -528,6 +529,15 @@ class FujiRecipeInspector:
             recipe_value = self.extract_xml_field(recipe_xml, field)
 
             if not self.values_match(field, generated_value, recipe_value):
+                if field == "Color" and film_simulation in ["Acros", "AcrosYe", "AcrosR", "AcrosG", "BYe", "BR", "BG", "Sepia", "BW"]:
+                    continue
+
+                if field in ["BlackImageTone", "MonochromaticColor_RG"] and recipe_value == "":
+                    continue
+
+                if field == "DynamicRange" and recipe_value == "Auto":
+                    continue
+
                 return None
 
         return recipe_name
@@ -801,6 +811,9 @@ EXAMPLES:
     # Use latest Fujifilm photo from Apple Photos
     %(prog)s --apple-photos
 
+    # Get FP1 recipe name from image
+    %(prog)s --recipe photo.jpg
+
     # Generate FP1 XML from image
     %(prog)s --xml photo.jpg > recipe.FP1
 
@@ -817,6 +830,8 @@ REQUIREMENTS:
     parser.add_argument('image_file', nargs='?', help='Path to the image file to process')
     parser.add_argument('--apple-photos', action='store_true',
                         help='Use the latest Fujifilm photo from Apple Photos')
+    parser.add_argument('--recipe', action='store_true',
+                        help='Get FP1 recipe name from image')
     parser.add_argument('--xml', action='store_true',
                         help='Generate FP1 XML from image (output to stdout)')
     parser.add_argument('--debug', action='store_true',
@@ -858,6 +873,8 @@ REQUIREMENTS:
 
         if args.debug:
             inspector.debug_mode()
+        elif args.recipe:
+            print(inspector.find_matching_recipe())
         elif args.xml:
             xml_output, _ = inspector.generate_fp1()
             print(xml_output)
