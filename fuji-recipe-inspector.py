@@ -371,9 +371,9 @@ class FujiRecipeInspector:
 
         # Dynamic range
         dynamic_range = self.get_exif_value("DevelopmentDynamicRange", "")
-        if not dynamic_range:
-            dynamic_range = self.get_exif_value("AutoDynamicRange", "100")
-            dynamic_range = dynamic_range.rstrip('%')
+        dynamic_range_setting = self.get_exif_value("DynamicRangeSetting", "")
+        if (not dynamic_range) or dynamic_range_setting == "Auto":
+            dynamic_range = "Auto"
 
         # Tone and color settings
         highlight_tone = self.extract_numeric(self.get_exif_value("HighlightTone", "0"))
@@ -516,6 +516,8 @@ class FujiRecipeInspector:
         recipe_name = os.path.splitext(os.path.basename(recipe_file))[0]
         mandatory_fields = self.get_mandatory_fields()
 
+        film_simulation = self.extract_xml_field(generated_xml, "FilmSimulation")
+
         for field in mandatory_fields:
             # Skip WBColorTemp if WhiteBalance is not Temperature
             if field == "WBColorTemp":
@@ -527,6 +529,15 @@ class FujiRecipeInspector:
             recipe_value = self.extract_xml_field(recipe_xml, field)
 
             if not self.values_match(field, generated_value, recipe_value):
+                if field == "Color" and film_simulation in ["Acros", "AcrosYe", "AcrosR", "AcrosG", "BYe", "BR", "BG", "Sepia", "BW"]:
+                    continue
+
+                if field in ["BlackImageTone", "MonochromaticColor_RG"] and recipe_value == "":
+                    continue
+
+                if field == "DynamicRange" and recipe_value == "Auto":
+                    continue
+
                 return None
 
         return recipe_name
