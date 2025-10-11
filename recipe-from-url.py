@@ -446,7 +446,6 @@ Remember to:
         label = self.parse_label_from_xml(xml_content)
         if not label:
             print("Error: Could not extract recipe name from XML", file=sys.stderr)
-            return False
 
         # Generate filename
         filename = f"{label}.FP1"
