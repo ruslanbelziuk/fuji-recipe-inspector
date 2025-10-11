@@ -811,6 +811,9 @@ EXAMPLES:
     # Use latest Fujifilm photo from Apple Photos
     %(prog)s --apple-photos
 
+    # Get FP1 recipe name from image
+    %(prog)s --recipe photo.jpg
+
     # Generate FP1 XML from image
     %(prog)s --xml photo.jpg > recipe.FP1
 
@@ -827,6 +830,8 @@ REQUIREMENTS:
     parser.add_argument('image_file', nargs='?', help='Path to the image file to process')
     parser.add_argument('--apple-photos', action='store_true',
                         help='Use the latest Fujifilm photo from Apple Photos')
+    parser.add_argument('--recipe', action='store_true',
+                        help='Get FP1 recipe name from image')
     parser.add_argument('--xml', action='store_true',
                         help='Generate FP1 XML from image (output to stdout)')
     parser.add_argument('--debug', action='store_true',
@@ -868,6 +873,8 @@ REQUIREMENTS:
 
         if args.debug:
             inspector.debug_mode()
+        elif args.recipe:
+            print(inspector.find_matching_recipe())
         elif args.xml:
             xml_output, _ = inspector.generate_fp1()
             print(xml_output)
