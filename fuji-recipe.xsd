@@ -22,7 +22,7 @@
             <xs:element name="IOPCode" type="xs:string"/>
             <xs:element name="ShootingCondition" type="OnOffType"/>
             <xs:element name="FileType" type="FileTypeEnum"/>
-            <xs:element name="ImageSize" type="xs:string"/>
+            <xs:element name="ImageSize" type="ImageSizeEnum"/>
             <xs:element name="ImageQuality" type="ImageQualityEnum"/>
             <xs:element name="ExposureBias" type="ExposureBiasType"/>
             <xs:element name="DynamicRange" type="DynamicRangeType"/>
@@ -81,8 +81,15 @@
     <xs:simpleType name="FileTypeEnum">
         <xs:restriction base="xs:string">
             <xs:enumeration value="JPG"/>
+            <xs:enumeration value="HEIF"/>
             <xs:enumeration value="RAF"/>
             <xs:enumeration value="TIFF"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="ImageSizeEnum">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="[LMS](3x2|16x9|1x1|4x3|5x4)"/>
         </xs:restriction>
     </xs:simpleType>
     
@@ -101,18 +108,9 @@
     </xs:simpleType>
     
     <xs:simpleType name="ExposureBiasType">
-        <xs:union>
-            <xs:simpleType>
-                <xs:restriction base="xs:string">
-                    <xs:enumeration value="0"/>
-                </xs:restriction>
-            </xs:simpleType>
-            <xs:simpleType>
-                <xs:restriction base="xs:string">
-                    <xs:pattern value="[PM]\d+P\d{2}"/>
-                </xs:restriction>
-            </xs:simpleType>
-        </xs:union>
+        <xs:restriction base="xs:string">
+            <xs:pattern value="0|[MP][0-3]P(00|33|67)"/>
+        </xs:restriction>
     </xs:simpleType>
     
     <xs:simpleType name="DynamicRangeType">
@@ -192,7 +190,7 @@
     
     <xs:simpleType name="ColorTempType">
         <xs:restriction base="xs:string">
-            <xs:pattern value="\d+[Kk]"/>
+            <xs:pattern value="(0|[1-9][0-9]{0,3}|10000)K"/>
         </xs:restriction>
     </xs:simpleType>
     
@@ -215,7 +213,7 @@
     
     <xs:simpleType name="ToneRangeType">
         <xs:restriction base="xs:decimal">
-            <xs:pattern value="-?(0|0\.5|1|1\.5|2|2\.5|3|3\.5|4)"/>
+            <xs:pattern value="-?([0-3](\.5)?|4)"/>
         </xs:restriction>
     </xs:simpleType>
     
