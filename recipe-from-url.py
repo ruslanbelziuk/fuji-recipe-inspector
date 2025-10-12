@@ -31,6 +31,9 @@ You should output a valid XML-file that would 100% suit the fuji-recipe.xsd
 
 For any confusions, please use the most modern camera settings (so if there's separate conditions, use the settings for X-Trans 5, X-Trans V, or just "V", or just "5") and settings for best conditions.
 
+Black and white film simulations are Acros (Acros) and Monochrome (BW). Color suffix for them must only be added if it is explicitly mentioned in the input. If all the colors are listed, use general one without suffixes.
+"Mono Shift: WC 2, MG 0" means BlackImageTone=2 and MonochromaticColor_RG=0
+
 Use this as a head:
 <ConversionProfile application="XRFC" version="1.12.0.0">
     <PropertyGroup device="X-S20" version="X-S20_0200" label="Absolute Portra">
