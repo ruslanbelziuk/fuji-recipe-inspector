@@ -728,6 +728,11 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
     exported = []
     
     for photo in photos:
+        for filename in exported:
+            print(f"Removing temporary file {filename}")
+            os.unlink(filename)
+        exported = []
+
         if photo.exif_info.camera_make != "FUJIFILM":
             print(f"Skipping {photo.original_filename} ({photo.uuid}) (Not a Fujifilm photo)")
             continue
@@ -742,10 +747,6 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
         if photo.ismissing:
             print(f"Downloading photo {photo.original_filename}")
             downloaded += 1
-
-            for filename in exported:
-                print(f"Removing temporary file {filename}")
-                os.unlink(filename)
 
             exported = photo.export(tempdir.name, use_photos_export=True, timeout=600)
             if photo.hasadjustments:
