@@ -765,7 +765,7 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
         inspector = FujiRecipeInspector(photo_path)
 
         # Check if photo is in "Fuji Recipe. Custom" album
-        if "Fuji Recipe. Custom" in photo.albums:
+        if ("Fuji Recipe. Custom" in photo.albums) or ("Fuji Recipe / Custom" in photo.albums) or ("Custom" in photo.albums):
             recipe_name = "Custom"
         else:
             recipe_name = None
@@ -791,11 +791,11 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
         # print(f"Updating caption for {photo.original_filename} ({photo.uuid}) to {new_desc}")
         update_description(photo, new_desc)
 
-        album_name = "Fuji Recipe. " + recipe_name
+        album_name = "Fuji Recipe / " + recipe_name
 
         if not album_name in photo.albums:
             print(f"Adding {photo.original_filename} ({photo.uuid}) to album {album_name}")
-            album = PhotosAlbum(album_name)
+            album = PhotosAlbum(album_name, None, ' / ')
             album.add(photo)
             print(f"Added to album")
 
