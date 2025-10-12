@@ -548,6 +548,11 @@ class FujiRecipeInspector:
                 if field == "DynamicRange" and recipe_value == "Auto":
                     continue
 
+                # For X-Trans IV compatibility
+                if field == "ColorChromeBlue":
+                    if (generated_value == "WEAK" and recipe_value == "OFF") or (generated_value == "STRONG" and recipe_value == "WEAK"):
+                        continue
+
                 return None
 
         return recipe_name
