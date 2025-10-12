@@ -508,18 +508,25 @@ class FujiRecipeInspector:
         except ValueError:
             return False
 
-    def compare_recipes(self, generated_xml: str, recipe_file: str) -> Optional[str]:
-        """Compare generated XML with a recipe FP1 file."""
+    def compare_recipes_with_diff(self, generated_xml: str, recipe_file: str) -> tuple[int, List[tuple[str, str, str]]]:
+        """Compare generated XML with a recipe FP1 file and return differences.
+        
+        Returns:
+            tuple: (mismatch_count, differences_list)
+                   where differences_list contains (field_name, photo_value, recipe_value) tuples
+        """
         if not os.path.isfile(recipe_file):
-            return None
+            return (999, [])  # Very high number to sort to the end
 
         with open(recipe_file, 'r', encoding='utf-8') as f:
             recipe_xml = f.read()
 
-        recipe_name = os.path.splitext(os.path.basename(recipe_file))[0]
         mandatory_fields = self.get_mandatory_fields()
 
         film_simulation = self.extract_xml_field(generated_xml, "FilmSimulation")
+        
+        mismatch_count = 0
+        differences = []
 
         for field in mandatory_fields:
             generated_value = self.extract_xml_field(generated_xml, field)
@@ -538,6 +545,7 @@ class FujiRecipeInspector:
             tolerance = 0.5 if field in ["HighlightTone", "ShadowTone"] else 0.1
 
             if not self.values_match(field, generated_value, recipe_value, tolerance):
+                # Check if this is an acceptable difference (compatibility rules)
                 if field == "Color" and film_simulation in self.bw_film_simulations:
                     continue
 
@@ -556,30 +564,76 @@ class FujiRecipeInspector:
                     if (generated_value == "WEAK" and recipe_value == "OFF") or (generated_value == "STRONG" and recipe_value == "WEAK"):
                         continue
 
-                return None
+                # This is a real mismatch
+                mismatch_count += 1
+                differences.append((field, generated_value, recipe_value))
 
-        return recipe_name
+        return (mismatch_count, differences)
 
-    def find_matching_recipe(self) -> Optional[str]:
-        """Find matching recipe from FP1 files."""
+    def compare_recipes(self, generated_xml: str, recipe_file: str) -> Optional[str]:
+        """Compare generated XML with a recipe FP1 file."""
+        mismatch_count, _ = self.compare_recipes_with_diff(generated_xml, recipe_file)
+        
+        if mismatch_count == 0:
+            recipe_name = os.path.splitext(os.path.basename(recipe_file))[0]
+            return recipe_name
+        
+        return None
+
+    def find_matching_recipe(self) -> tuple[Optional[str], Optional[str], List[tuple[str, int, List[tuple[str, str, str]]]]]:
+        """Find matching recipe from FP1 files.
+        
+        Returns:
+            tuple: (recipe_name, hash_value, closest_matches)
+                   where:
+                   - recipe_name is the matched recipe name or None if not found
+                   - hash_value is the recipe hash
+                   - closest_matches is list of (recipe_name, mismatch_count, differences)
+        """
         try:
             generated_xml, hash_value = self.generate_fp1()
         except:
-            return None
+            return (None, None, [])
 
         fp1_files = self.get_fp1_files()
         if not fp1_files:
-            return None
+            return (None, hash_value, [])
+
+        # Collect all recipes with their mismatch counts and differences
+        recipe_comparisons = []
 
         for recipe_file in fp1_files:
-            result = self.compare_recipes(generated_xml, recipe_file)
-            if result:
-                return result
-
-        if hash_value:
-            return f"Unknown ({hash_value})"
+            mismatch_count, differences = self.compare_recipes_with_diff(generated_xml, recipe_file)
+            recipe_name = os.path.splitext(os.path.basename(recipe_file))[0]
+            recipe_comparisons.append((recipe_name, mismatch_count, differences))
         
-        return "Unknown"
+        # Sort by mismatch count (closest matches first)
+        recipe_comparisons.sort(key=lambda x: x[1])
+        
+        # If we have an exact match (0 mismatches), return it
+        if recipe_comparisons and recipe_comparisons[0][1] == 0:
+            return (recipe_comparisons[0][0], hash_value, [])
+
+        # No exact match found - return None with closest matches
+        closest_matches = [m for m in recipe_comparisons[:5] if m[1] < 999]
+        return (None, hash_value, closest_matches)
+
+    def print_closest_matches(self, hash_value: Optional[str], closest_matches: List[tuple[str, int, List[tuple[str, str, str]]]]):
+        """Print closest matching recipes to stderr.
+        
+        Args:
+            hash_value: Recipe hash value
+            closest_matches: List of (recipe_name, mismatch_count, differences) tuples
+        """
+        if not closest_matches:
+            return
+        
+        print(f"Recipe not found (hash: {hash_value or 'N/A'}). Closest matches:", file=sys.stderr)
+        for i, (recipe_name, mismatch_count, differences) in enumerate(closest_matches):
+            print(f"  {i+1}. \"{recipe_name}\" ({mismatch_count} difference{'s' if mismatch_count != 1 else ''}):", file=sys.stderr)
+            for field_name, photo_value, recipe_value in differences:
+                print(f"     - {field_name}: Photo={photo_value}, Recipe={recipe_value}", file=sys.stderr)
+        print("", file=sys.stderr)  # Empty line for readability
 
     def get_fp1_files(self) -> List[str]:
         """Get all FP1 files from X RAW STUDIO folder and Recipes directory."""
@@ -606,7 +660,7 @@ class FujiRecipeInspector:
             raise ValueError("Not a Fujifilm image")
 
         # Find recipe name
-        recipe_name = self.find_matching_recipe()
+        recipe_name, hash_value, _ = self.find_matching_recipe()
         if not recipe_name:
             recipe_name = "Unknown"
 
@@ -741,6 +795,7 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
         max_photos: Maximum number of photos to process (excluding skipped ones)
     """
     processed_count = 0
+    shown_unknown_hashes = set()  # Track which unknown recipe hashes we've already shown
 
     tempdir = tempfile.TemporaryDirectory()
     downloaded = 0
@@ -800,7 +855,7 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
             # If recipe name is "Custom", update the description
             if recipe_name == "Custom":
                 # Replace the recipe name in the description
-                original_recipe = inspector.find_matching_recipe()
+                original_recipe, _, _ = inspector.find_matching_recipe()
                 recipe_description = recipe_description.replace(
                     f"Film Recipe: {original_recipe}",
                     f"Film Recipe: Custom"
@@ -810,7 +865,14 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
             continue
 
         if recipe_name is None:
-            recipe_name = inspector.find_matching_recipe()
+            recipe_name, hash_value, closest_matches = inspector.find_matching_recipe()
+
+            # Print closest matches for unknown recipes (only once per hash)
+            if recipe_name is None:
+                if hash_value and hash_value not in shown_unknown_hashes:
+                    shown_unknown_hashes.add(hash_value)
+                    inspector.print_closest_matches(hash_value, closest_matches)
+                recipe_name = f"Unknown ({hash_value})" if hash_value else "Unknown"
 
         new_desc = f"{existing_description}\n{recipe_description}" if existing_description else recipe_description
         # print(f"Updating caption for {photo.original_filename} ({photo.uuid}) to {new_desc}")
@@ -921,7 +983,13 @@ REQUIREMENTS:
         if args.debug:
             inspector.debug_mode()
         elif args.recipe:
-            print(inspector.find_matching_recipe())
+            recipe_name, hash_value, closest_matches = inspector.find_matching_recipe()
+            print(recipe_name)
+
+            if recipe_name is None:
+                # Unknown recipe - print closest matches
+                inspector.print_closest_matches(hash_value, closest_matches)
+
         elif args.xml:
             xml_output, _ = inspector.generate_fp1()
             print(xml_output)
