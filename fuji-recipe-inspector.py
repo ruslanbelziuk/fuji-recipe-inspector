@@ -728,6 +728,9 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
     exported = []
     
     for photo in photos:
+        if photo.shared:
+            continue
+
         for filename in exported:
             print(f"Removing temporary file {filename}")
             os.unlink(filename)
