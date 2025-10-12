@@ -734,7 +734,7 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
         exported = []
 
         if photo.exif_info.camera_make != "FUJIFILM":
-            print(f"Skipping {photo.original_filename} ({photo.uuid}) (Not a Fujifilm photo)")
+            print(f"Skipping {photo.original_filename} ({photo.uuid}) (Not a Fujifilm photo as per general EXIF data)")
             continue
 
         existing_description = photo.description or "" # description can be None
@@ -763,6 +763,11 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
         existing_description = existing_description.strip()
 
         photo_path = exported[0] if exported else photo.path
+
+        if not os.path.exists(photo_path):
+            print(f"Skipping {photo.original_filename} ({photo.uuid}) (File not found)")
+            continue
+
         inspector = FujiRecipeInspector(photo_path)
 
         # Check if photo is in "Fuji Recipe. Custom" album
