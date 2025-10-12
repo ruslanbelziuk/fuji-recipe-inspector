@@ -740,20 +740,17 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
         if photo.shared:
             continue
 
+        if photo.exif_info.camera_make != "FUJIFILM":
+            continue
+
         for filename in exported:
             print(f"Removing temporary file {filename}")
             os.unlink(filename)
         exported = []
 
-        if photo.exif_info.camera_make != "FUJIFILM":
-            print(f"Skipping {photo.original_filename} ({photo.uuid}) (Not a Fujifilm photo as per general EXIF data)")
-            continue
-
         existing_description = photo.description or "" # description can be None
         if FUJI_RECIPE_COMMENT_PREFIX in existing_description and "Film Recipe: Unknown" not in existing_description:
-            print(
-                f"Skipping {photo.original_filename} ({photo.uuid}) (Recipe already in description)"
-            )
+            # print(f"Skipping {photo.original_filename} ({photo.uuid}) (Recipe already in description)")
             continue
 
         if photo.ismissing:
