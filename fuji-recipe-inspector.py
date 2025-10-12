@@ -522,14 +522,17 @@ class FujiRecipeInspector:
         film_simulation = self.extract_xml_field(generated_xml, "FilmSimulation")
 
         for field in mandatory_fields:
-            # Skip WBColorTemp if WhiteBalance is not Temperature
+            generated_value = self.extract_xml_field(generated_xml, field)
+            recipe_value = self.extract_xml_field(recipe_xml, field)
+
             if field == "WBColorTemp":
+                # Skip WBColorTemp if WhiteBalance is not Temperature
                 wb_value = self.extract_xml_field(generated_xml, "WhiteBalance")
                 if wb_value != "Temperature":
                     continue
 
-            generated_value = self.extract_xml_field(generated_xml, field)
-            recipe_value = self.extract_xml_field(recipe_xml, field)
+                generated_value = generated_value.upper()
+                recipe_value = recipe_value.upper()
 
             # Set tolerance based on field type
             tolerance = 0.5 if field in ["HighlightTone", "ShadowTone"] else 0.1
