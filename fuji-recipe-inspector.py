@@ -487,7 +487,7 @@ class FujiRecipeInspector:
             "MonochromaticColor_RG",
         ]
 
-    def values_match(self, field: str, val1: str, val2: str) -> bool:
+    def values_match(self, field: str, val1: str, val2: str, tolerance: float = 0.1) -> bool:
         """Compare two values with fuzzy matching for numeric fields."""
         # Empty value handling
         if not val1 and not val2:
@@ -503,7 +503,8 @@ class FujiRecipeInspector:
         try:
             num1 = float(val1)
             num2 = float(val2)
-            return abs(num1 - num2) < 0.1
+            return abs(num1 - num2) <= tolerance
+
         except ValueError:
             return False
 
@@ -530,7 +531,10 @@ class FujiRecipeInspector:
             generated_value = self.extract_xml_field(generated_xml, field)
             recipe_value = self.extract_xml_field(recipe_xml, field)
 
-            if not self.values_match(field, generated_value, recipe_value):
+            # Set tolerance based on field type
+            tolerance = 0.5 if field in ["HighlightTone", "ShadowTone"] else 0.1
+
+            if not self.values_match(field, generated_value, recipe_value, tolerance):
                 if field == "Color" and film_simulation in self.bw_film_simulations:
                     continue
 
