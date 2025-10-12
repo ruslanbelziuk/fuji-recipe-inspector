@@ -806,7 +806,7 @@ def add_fujifilm_recipe_description_to_photos(photos: list[PhotoInfo], max_photo
 
         album_name = "Fuji Recipe / " + recipe_name
 
-        if not album_name in photo.albums:
+        if not album_name in photo.albums and not recipe_name in photo.albums:
             print(f"Adding {photo.original_filename} ({photo.uuid}) to album {album_name}")
             album = PhotosAlbum(album_name, None, ' / ')
             album.add(photo)
