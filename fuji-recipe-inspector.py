@@ -621,6 +621,8 @@ class FujiRecipeInspector:
         wb_raw = self.get_exif_value("WhiteBalance", "Auto")
         white_balance = self.map_white_balance(wb_raw)
         wb_readable = self.wb_to_readable(white_balance)
+        color_temp = self.get_exif_value("ColorTemperature", "0")
+        wb_temp = f"{color_temp}K"
 
         # WB shift
         wb_fine_tune = self.get_exif_value("WhiteBalanceFineTune", "Red +0, Blue +0")
@@ -687,7 +689,12 @@ Simulation: {film_sim_readable}
 Grain Effect: {grain_text}
 Colour Chrome Effect: {color_chrome}
 Colour Chrome Blue: {color_chrome_blue}
-White Balance: {wb_readable}
+White Balance: {wb_readable}"""
+
+        if wb_readable == "Kelvin":
+            output += f"\nColor Temperature: {wb_temp}"
+
+        output += f"""
 WB Shift: {wb_shift}
 Dynamic Range: {dynamic_range}
 Highlights: {highlight_tone}
